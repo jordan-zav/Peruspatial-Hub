@@ -6,18 +6,18 @@ Constructed programmatically via PyQt5.
 
 import os
 import webbrowser
+import urllib.parse
 import json
 import time
-import unicodedata
 
-from qgis.PyQt.QtCore import Qt, QSize, QTimer, QUrl, QByteArray, QXmlStreamReader
+from qgis.PyQt.QtCore import Qt, QTimer, QUrl, QByteArray, QXmlStreamReader
 from qgis.PyQt.QtNetwork import QNetworkReply, QNetworkRequest
 from qgis.PyQt.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLineEdit, QComboBox, QTreeWidget, QTreeWidgetItem, QPushButton, QToolButton,
     QLabel, QTextBrowser, QMessageBox, QSplitter, QDialog, QDialogButtonBox
 )
-from qgis.PyQt.QtGui import QFont, QColor, QClipboard, QIcon, QPixmap
+from qgis.PyQt.QtGui import QFont, QColor, QPixmap
 from qgis.core import (
     QgsSettings, QgsRasterLayer, QgsVectorLayer, QgsProject, QgsDataSourceUri,
     QgsCoordinateReferenceSystem, QgsNetworkAccessManager
@@ -31,41 +31,23 @@ from .peruspatial_hub_urls import (
     url_with_json as _url_with_json,
     wms_capabilities_url as _wms_capabilities_url,
 )
+from .peruspatial_hub_catalog import (
+    load_catalog,
+    normalize_search_text as _normalize_catalog_text,
+    search_catalog,
+)
+from .peruspatial_hub_sources import (
+    ACTIVE_REST_ROOTS,
+    ACTIVE_WMS_ROOTS,
+    CATALOG_CATEGORIES,
+    LIVE_SERVERS,
+)
 
 ARCGIS_SERVICE_TYPES = {
     "arcgis_mapserver": "MapServer",
     "arcgisfeatureserver": "FeatureServer",
     "arcgis_imageserver": "ImageServer",
 }
-
-ACTIVE_REST_ROOTS = {
-    "https://ide.igp.gob.pe/arcgis/rest/services",
-    "https://geocatmin.ingemmet.gob.pe/arcgis/rest/services",
-    "https://geocatmin.ingemmet.gob.pe/arcgis/rest/services/WGS84_18",
-    "https://www.idep.gob.pe/geoportal/rest/services/SERVICIOS_IGN",
-    "https://www.idep.gob.pe/geoportal/rest/services/INSTITUCIONALES",
-    "https://geoservicios.sernanp.gob.pe/arcgis/rest/services",
-    "https://geoservidorperu.minam.gob.pe/arcgis/rest/services",
-    "https://geo.serfor.gob.pe/geoservicios/rest/services",
-    "https://sigda.cultura.gob.pe/sigda/rest/services",
-    "https://gisem.osinergmin.gob.pe/serverosih/rest/services",
-    "https://pifa.oefa.gob.pe/arcgis/rest/services",
-}
-
-ACTIVE_WMS_ROOTS = {
-    "https://ide.igp.gob.pe/geoserver/ows",
-    "https://ide.igp.gob.pe/geoserver/SCAH_NDVI/wms",
-    "https://ide.igp.gob.pe/geoserver/SCAHanomNDVI/wms",
-}
-
-CATALOG_CATEGORIES = [
-    "Arqueología y Cultura",
-    "Clima y Riesgos",
-    "Geología y Minería",
-    "Hidrología y Agua",
-    "Límites y Cartografía",
-    "Medio Ambiente",
-]
 
 MAX_HTTP_RESPONSE_BYTES = 20 * 1024 * 1024
 
@@ -292,23 +274,33 @@ class PeruSpatialHubPanel(QDockWidget):
         # Set default splitter sizes (give tree more space than metadata)
         self.splitter.setSizes([350, 250])
 
+        catalog_path = os.path.join(self.plugin_dir or "", "catalog", "catalog.json")
+        try:
+            self.catalog_data = load_catalog(catalog_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            self.catalog_data = {"entries": [], "sources": []}
+        self.catalog_entries = self.catalog_data.get("entries", [])
+        self.search_input.setToolTip(
+            f"Búsqueda local en {len(self.catalog_entries):,} elementos inventariados. "
+            "Escribir aquí no realiza solicitudes de red."
+        )
+
         # Load services into Tree
         self.populate_tree()
 
-        # Directory discovery is deferred until the user searches, avoiding
-        # unnecessary network traffic when the catalog is only browsed manually.
-        self._directory_catalog_loaded = False
+        # Search is always local. Network access is reserved for explicit tree
+        # expansion and layer loading actions.
         self._discovering_catalog = False
         self._search_cancelled = False
         self.search_timer = QTimer(self)
         self.search_timer.setSingleShot(True)
-        self.search_timer.setInterval(500)
-        self.search_timer.timeout.connect(self.perform_deep_search)
+        self.search_timer.setInterval(180)
+        self.search_timer.timeout.connect(self.apply_catalog_search)
         self.visibilityChanged.connect(self.on_visibility_changed)
         
         # Connect signals
         self.search_input.textChanged.connect(self.schedule_filter_services)
-        self.category_combo.currentIndexChanged.connect(self.filter_services)
+        self.category_combo.currentIndexChanged.connect(self.schedule_filter_services)
         self.tree_widget.itemSelectionChanged.connect(self.on_selection_changed)
         self.tree_widget.itemDoubleClicked.connect(self.on_item_double_clicked)
         self.tree_widget.itemExpanded.connect(self.on_item_expanded)
@@ -608,9 +600,8 @@ class PeruSpatialHubPanel(QDockWidget):
         # Rebuild lazy nodes so an authenticated directory can reveal content
         # which was not visible to the previous anonymous request.
         self.populate_tree()
-        self._directory_catalog_loaded = False
         self.update_buttons_state(None)
-        self.filter_services()
+        self.apply_catalog_search()
         self.iface.reloadConnections()
         QMessageBox.information(self, "Acceso actualizado", message)
 
@@ -688,6 +679,14 @@ class PeruSpatialHubPanel(QDockWidget):
     def populate_tree(self):
         """Fills the TreeWidget grouping services by institution and adding live servers."""
         self.tree_widget.clear()
+
+        self.search_results_root = QTreeWidgetItem(self.tree_widget)
+        self.search_results_root.setText(0, "🔎 Resultados del inventario local")
+        self.search_results_root.setText(1, "Sin conexión")
+        self.search_results_root.setFont(0, QFont("Segoe UI", 10, QFont.Weight.Bold))
+        self.search_results_root.setForeground(0, QColor("#38761d"))
+        self.search_results_root.setData(0, Qt.ItemDataRole.UserRole, None)
+        self.search_results_root.setHidden(True)
         
         # The old fixed layer URLs contained many retired services. Start from
         # live repository roots and discover their current services/layers.
@@ -697,108 +696,6 @@ class PeruSpatialHubPanel(QDockWidget):
         explorer_root.setForeground(0, QColor("#0b5394"))
         explorer_root.setData(0, Qt.ItemDataRole.UserRole, None)
 
-        # List of official directories/servers for live exploration
-        LIVE_SERVERS = [
-            {
-                "institution": "INGEMMET (GEOCATMIN)",
-                "name": "Servicios REST Generales (WGS84)",
-                "url": "https://geocatmin.ingemmet.gob.pe/arcgis/rest/services",
-                "stype": "arcgis_rest",
-                "category": "Geología y Minería"
-            },
-            {
-                "institution": "INGEMMET (GEOCATMIN)",
-                "name": "Servicios REST Huso 18S (WGS84)",
-                "url": "https://geocatmin.ingemmet.gob.pe/arcgis/rest/services/WGS84_18",
-                "stype": "arcgis_rest",
-                "category": "Geología y Minería"
-            },
-            {
-                "institution": "IGN",
-                "name": "IGN Servicios de Cartografía (REST)",
-                "url": "https://www.idep.gob.pe/geoportal/rest/services/SERVICIOS_IGN",
-                "stype": "arcgis_rest",
-                "category": "Límites y Cartografía"
-            },
-            {
-                "institution": "IDEP (ANA y otras instituciones)",
-                "name": "Servicios Institucionales Oficiales (REST)",
-                "url": "https://www.idep.gob.pe/geoportal/rest/services/INSTITUCIONALES",
-                "stype": "arcgis_rest",
-                "category": "Hidrología y Agua"
-            },
-            {
-                "institution": "MINCUL",
-                "name": "MINCUL Patrimonio y Arqueología (REST)",
-                "url": "https://sigda.cultura.gob.pe/sigda/rest/services",
-                "stype": "arcgis_rest",
-                "category": "Arqueología y Cultura",
-                "crs_warning": True
-            },
-            {
-                "institution": "SERNANP",
-                "name": "SERNANP Áreas Protegidas (REST)",
-                "url": "https://geoservicios.sernanp.gob.pe/arcgis/rest/services",
-                "stype": "arcgis_rest",
-                "category": "Medio Ambiente"
-            },
-            {
-                "institution": "SERFOR",
-                "name": "SERFOR Catastro Forestal (REST)",
-                "url": "https://geo.serfor.gob.pe/geoservicios/rest/services",
-                "stype": "arcgis_rest",
-                "category": "Medio Ambiente"
-            },
-            {
-                "institution": "MINAM",
-                "name": "MINAM Geoservidor (REST)",
-                "url": "https://geoservidorperu.minam.gob.pe/arcgis/rest/services",
-                "stype": "arcgis_rest",
-                "category": "Medio Ambiente"
-            },
-            {
-                "institution": "OSINERGMIN",
-                "name": "OSINERGMIN Energía (REST)",
-                "url": "https://gisem.osinergmin.gob.pe/serverosih/rest/services",
-                "stype": "arcgis_rest",
-                "category": "Límites y Cartografía"
-            },
-            {
-                "institution": "OEFA",
-                "name": "PIFA Monitoreo y Fiscalización Ambiental (REST)",
-                "url": "https://pifa.oefa.gob.pe/arcgis/rest/services",
-                "stype": "arcgis_rest",
-                "category": "Medio Ambiente"
-            },
-            {
-                "institution": "IGP",
-                "name": "IGP Directorio Geoespacial (REST)",
-                "url": "https://ide.igp.gob.pe/arcgis/rest/services",
-                "stype": "arcgis_rest",
-                "category": "Clima y Riesgos"
-            },
-            {
-                "institution": "IGP",
-                "name": "IGP Catálogo General (WMS)",
-                "url": "https://ide.igp.gob.pe/geoserver/ows?service=wms",
-                "stype": "wms",
-                "category": "Clima y Riesgos"
-            },
-            {
-                "institution": "IGP",
-                "name": "IGP Condición NDVI - últimos 30 días (WMS)",
-                "url": "https://ide.igp.gob.pe/geoserver/SCAH_NDVI/wms?service=wms",
-                "stype": "wms",
-                "category": "Medio Ambiente"
-            },
-            {
-                "institution": "IGP",
-                "name": "IGP Anomalías NDVI - últimos 30 días (WMS)",
-                "url": "https://ide.igp.gob.pe/geoserver/SCAHanomNDVI/wms?service=wms",
-                "stype": "wms",
-                "category": "Medio Ambiente"
-            },
-        ]
 
         self.live_servers = [
             s for s in LIVE_SERVERS
@@ -849,8 +746,7 @@ class PeruSpatialHubPanel(QDockWidget):
     @staticmethod
     def normalize_search_text(value):
         """Normalize case and accents so geologia also matches Geología."""
-        normalized = unicodedata.normalize("NFKD", str(value or ""))
-        return "".join(char for char in normalized if not unicodedata.combining(char)).casefold()
+        return _normalize_catalog_text(value)
 
     def item_matches_search(self, item, search_text, selected_category):
         """Match only the visible node name, never metadata or technical fields."""
@@ -866,10 +762,20 @@ class PeruSpatialHubPanel(QDockWidget):
         if not search_text:
             return True
 
+        if data.get("_catalog_result"):
+            return True
+
         return search_text in self.normalize_search_text(item.text(0))
 
     def filter_tree_item(self, item, search_text, selected_category):
         """Filter a complete branch and retain ancestors of matching layers."""
+        if item is getattr(self, "search_results_root", None):
+            for index in range(item.childCount()):
+                self.filter_tree_item(item.child(index), search_text, selected_category)
+            visible = bool(search_text)
+            item.setHidden(not visible)
+            return visible
+
         own_match = self.item_matches_search(item, search_text, selected_category)
         descendant_match = False
 
@@ -895,24 +801,80 @@ class PeruSpatialHubPanel(QDockWidget):
                 self.tree_widget.topLevelItem(i), search_text, selected_category
             )
 
-    def schedule_filter_services(self):
-        """Filter loaded nodes now and defer remote directory discovery."""
-        self.filter_services()
-        if self.search_input.text().strip() and self.isVisible():
+    def populate_catalog_results(self, search_text, selected_category):
+        """Rebuild the lightweight result branch from the bundled inventory."""
+        self.search_results_root.takeChildren()
+        if not search_text:
+            self.search_results_root.setHidden(True)
+            return
+
+        results, total = search_catalog(
+            self.catalog_entries,
+            search_text,
+            selected_category,
+            limit=200,
+        )
+        self.search_results_root.setText(
+            0, f"🔎 Inventario local: {len(results)} de {total} resultado(s)"
+        )
+        self.search_results_root.setHidden(False)
+
+        for entry in results:
+            data = {
+                key: value
+                for key, value in entry.items()
+                if key not in {"display_type", "path", "search_text", "_search_text"}
+            }
+            data["_catalog_result"] = True
+            item = QTreeWidgetItem(self.search_results_root)
+            institution = data.get("institution", "")
+            item.setText(0, f"{institution} — {data.get('name', 'Sin nombre')}")
+            item.setText(
+                1,
+                entry.get("display_type")
+                or self.friendly_type(data.get("stype", data.get("type", ""))),
+            )
+            item.setToolTip(0, entry.get("path", data.get("url", "")))
+            item.setData(0, Qt.ItemDataRole.UserRole, data)
+
+            if data.get("type") in {"server", "folder", "arcgis_service", "ogc_service"}:
+                data["is_loaded"] = False
+                item.setData(0, Qt.ItemDataRole.UserRole, data)
+                dummy = QTreeWidgetItem(item)
+                dummy.setText(0, "Expandir para consultar en vivo...")
+
+        self.search_results_root.setExpanded(True)
+
+    def apply_catalog_search(self):
+        """Apply a fully local search; this method never performs network I/O."""
+        if not hasattr(self, "search_results_root"):
+            return
+        search_text = self.normalize_search_text(self.search_input.text().strip())
+        selected_category = self.category_combo.currentText()
+        self.tree_widget.setUpdatesEnabled(False)
+        try:
+            self.populate_catalog_results(search_text, selected_category)
+            self.filter_services()
+        finally:
+            self.tree_widget.setUpdatesEnabled(True)
+
+    def schedule_filter_services(self, *_args):
+        """Debounce local filtering without contacting external services."""
+        self.search_timer.stop()
+        if self.isVisible():
             self._search_cancelled = False
             self.search_timer.start()
-        else:
-            self.search_timer.stop()
 
     def cancel_pending_search(self):
-        """Stop deferred work and prevent further catalog requests."""
+        """Stop deferred UI filtering and cancel explicit loading work."""
         self._search_cancelled = True
         self.search_timer.stop()
 
     def on_visibility_changed(self, visible):
-        """Cancel remote discovery as soon as the dock panel is hidden."""
+        """Pause local filtering and explicit loading while the panel is hidden."""
         if visible:
             self._search_cancelled = False
+            self.search_timer.start()
         else:
             self.cancel_pending_search()
 
@@ -923,121 +885,6 @@ class PeruSpatialHubPanel(QDockWidget):
     def hideEvent(self, event):
         self.cancel_pending_search()
         super().hideEvent(event)
-
-    def iter_tree_items(self, parent=None):
-        """Yield all items below a parent, or the complete tree when omitted."""
-        if parent is None:
-            items = [
-                self.tree_widget.topLevelItem(index)
-                for index in range(self.tree_widget.topLevelItemCount())
-            ]
-        else:
-            items = [parent.child(index) for index in range(parent.childCount())]
-
-        for item in items:
-            yield item
-            yield from self.iter_tree_items(item)
-
-    def discover_directory_branch(self, item, visited):
-        """Load REST folders/services recursively, without loading every service layer."""
-        if self._search_cancelled or not self.isVisible():
-            return
-
-        data = item.data(0, Qt.ItemDataRole.UserRole) or {}
-        if data.get("type") not in ("server", "folder"):
-            return
-
-        url = _clean_rest_url(data.get("url", ""))
-        if not url or url in visited:
-            return
-        visited.add(url)
-
-        if not data.get("is_loaded", False):
-            self.load_dynamic_node(item)
-            if self._search_cancelled or not self.isVisible():
-                return
-
-        # Snapshot children because loading a branch replaces its dummy node.
-        children = [item.child(index) for index in range(item.childCount())]
-        for child in children:
-            if self._search_cancelled or not self.isVisible():
-                return
-            child_data = child.data(0, Qt.ItemDataRole.UserRole) or {}
-            if child_data.get("type") == "folder":
-                self.discover_directory_branch(child, visited)
-
-    def load_matching_service_layers(self, search_text, selected_category):
-        """Load sublayers only for services whose name/path matches the query."""
-        candidates = []
-        for item in self.iter_tree_items():
-            if self._search_cancelled or not self.isVisible():
-                return
-            data = item.data(0, Qt.ItemDataRole.UserRole) or {}
-            if (
-                data.get("type") == "arcgis_service"
-                and not data.get("is_loaded", False)
-                and self.item_matches_search(item, search_text, selected_category)
-            ):
-                candidates.append(item)
-
-        for item in candidates:
-            if self._search_cancelled or not self.isVisible():
-                return
-            self.load_dynamic_node(item)
-
-    def perform_deep_search(self):
-        """Discover unopened REST directories so their services are searchable."""
-        if self._discovering_catalog or self._search_cancelled or not self.isVisible():
-            return
-
-        search_text = self.normalize_search_text(self.search_input.text().strip())
-        if not search_text:
-            return
-
-        if self._directory_catalog_loaded:
-            self._discovering_catalog = True
-            try:
-                self.load_matching_service_layers(
-                    search_text, self.category_combo.currentText()
-                )
-            finally:
-                self._discovering_catalog = False
-                self.filter_services()
-            return
-
-        from qgis.PyQt.QtWidgets import QApplication
-
-        self._discovering_catalog = True
-        self.iface.messageBar().pushMessage(
-            "PeruSpatial Hub",
-            "Explorando carpetas REST para completar la búsqueda...",
-            level=0,
-            duration=4,
-        )
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        QApplication.processEvents()
-        try:
-            visited = set()
-            for top_index in range(self.tree_widget.topLevelItemCount()):
-                if self._search_cancelled or not self.isVisible():
-                    break
-                top_item = self.tree_widget.topLevelItem(top_index)
-                for item in list(self.iter_tree_items(top_item)):
-                    if self._search_cancelled or not self.isVisible():
-                        break
-                    data = item.data(0, Qt.ItemDataRole.UserRole) or {}
-                    if data.get("type") == "server":
-                        self.discover_directory_branch(item, visited)
-
-            if not self._search_cancelled and self.isVisible():
-                self._directory_catalog_loaded = True
-                self.load_matching_service_layers(
-                    search_text, self.category_combo.currentText()
-                )
-        finally:
-            self._discovering_catalog = False
-            QApplication.restoreOverrideCursor()
-            self.filter_services()
 
     def on_selection_changed(self):
         """Loads metadata details when a service node is selected."""

@@ -83,7 +83,7 @@ class PeruSpatialHub(object):
             self.dock_widget.tree_widget.collapseAll()
             self.dock_widget.show()
             self.dock_widget.raise_()
-        except Exception as e:
+        except Exception:
             import traceback
             tb = traceback.format_exc()
             from qgis.PyQt.QtWidgets import QMessageBox
