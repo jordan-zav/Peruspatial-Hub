@@ -14,4 +14,4 @@ icon=logo_solo.png
 tags=peru, geology, mining, geophysics, archaeology, raster, vector, arcgis, rest, wms, idep, oefa
 experimental=False
 deprecated=False
-changelog=1.0.2 - Integración del directorio ArcGIS REST del IGP, exploración y carga directa de capas WMS, accesos NDVI y empaquetado con versión indicada por el usuario. 1.0.1 - Corrección de descripción en inglés y compatibilidad con Qt6 (PyQt6). 1.0.0 - Primera versión estable GPLv3.
+changelog=1.1.1 - Catálogo ampliado, exploración ArcGIS REST y WMS y mejoras de empaquetado. 1.0.2 - Integración del directorio ArcGIS REST del IGP y accesos NDVI. 1.0.1 - Corrección de descripción y compatibilidad con Qt6. 1.0.0 - Primera versión estable GPLv3.

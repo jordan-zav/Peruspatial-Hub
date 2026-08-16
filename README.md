@@ -1,10 +1,21 @@
 # PeruSpatial Hub
 
-Versión estable: 1.1.0
+<p align="center">
+  <a href="https://github.com/jordan-zav/Peruspatial-Hub/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/jordan-zav/Peruspatial-Hub?style=flat-square"></a>
+  <a href="https://github.com/jordan-zav/Peruspatial-Hub/actions/workflows/tests.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/jordan-zav/Peruspatial-Hub/tests.yml?branch=main&label=tests&style=flat-square"></a>
+  <img alt="QGIS 3.34+" src="https://img.shields.io/badge/QGIS-3.34%2B-589632?style=flat-square&logo=qgis&logoColor=white">
+  <a href="LICENSE"><img alt="GNU GPLv3" src="https://img.shields.io/badge/License-GPLv3-blue?style=flat-square"></a>
+</p>
+
+Versión estable: 1.1.1
 
 **PeruSpatial Hub** es un plugin para QGIS diseñado para centralizar y facilitar el acceso a la Infraestructura de Datos Espaciales (IDE) de las principales instituciones públicas del Perú. 
 
 Este plugin es una herramienta indispensable para profesionales en **geología, geografía, teledetección, ingeniería ambiental, logística administrativa, hidrocarburos e hidrogeología**, ya que permite explorar e integrar de forma inmediata la cartografía base y temática del país.
+
+## Descarga
+
+Descarga el ZIP instalable desde la [última release](https://github.com/jordan-zav/Peruspatial-Hub/releases/latest) y cárgalo mediante **Complementos → Administrar e instalar complementos → Instalar a partir de ZIP**.
 
 ## Licencia de código abierto
 
@@ -75,3 +86,15 @@ Si está trabajando con datos arqueológicos o geofísicos en el Perú, siga rig
 Desarrollado por [Jordan Zavaleta](https://gisgeo.dev).
 
 El código fuente y el seguimiento de incidencias se encuentran en [GitHub](https://github.com/jordan-zav/peruspatial-hub).
+
+## Desarrollo
+
+Las funciones de construcción de URLs se prueban sin depender de una instalación de QGIS:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pytest
+python scripts/package_plugin.py
+```
+
+El empaquetador crea un ZIP con la carpeta `peruspatial_hub` requerida por QGIS.

@@ -6,7 +6,6 @@ Constructed programmatically via PyQt5.
 
 import os
 import webbrowser
-import urllib.parse
 import json
 import time
 import unicodedata
@@ -24,6 +23,14 @@ from qgis.core import (
     QgsCoordinateReferenceSystem, QgsNetworkAccessManager
 )
 from qgis.gui import QgsAuthConfigSelect
+
+from .peruspatial_hub_urls import (
+    append_rest_path as _append_rest_path,
+    clean_rest_url as _clean_rest_url,
+    service_url as _service_url,
+    url_with_json as _url_with_json,
+    wms_capabilities_url as _wms_capabilities_url,
+)
 
 ARCGIS_SERVICE_TYPES = {
     "arcgis_mapserver": "MapServer",
@@ -62,49 +69,6 @@ CATALOG_CATEGORIES = [
 
 MAX_HTTP_RESPONSE_BYTES = 20 * 1024 * 1024
 
-
-def _url_with_json(url):
-    """Return an ArcGIS REST URL with f=json without damaging existing queries."""
-    parts = urllib.parse.urlsplit(url)
-    query = dict(urllib.parse.parse_qsl(parts.query, keep_blank_values=True))
-    query["f"] = "json"
-    return urllib.parse.urlunsplit(
-        (parts.scheme, parts.netloc, parts.path, urllib.parse.urlencode(query), parts.fragment)
-    )
-
-
-def _clean_rest_url(url):
-    parts = urllib.parse.urlsplit(url)
-    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
-
-
-def _append_rest_path(url, *segments):
-    base = _clean_rest_url(url)
-    encoded = [urllib.parse.quote(str(segment).strip("/"), safe="") for segment in segments]
-    return "/".join([base] + encoded)
-
-
-def _service_url(directory_url, service_name, service_type):
-    """Build the service URL returned by an ArcGIS REST directory."""
-    base = _clean_rest_url(directory_url)
-    name_parts = [part for part in str(service_name).split("/") if part]
-    current_folder = urllib.parse.unquote(urllib.parse.urlsplit(base).path.rstrip("/").split("/")[-1])
-    if len(name_parts) > 1 and name_parts[0].lower() == current_folder.lower():
-        name_parts = name_parts[1:]
-    return _append_rest_path(base, *name_parts, service_type)
-
-
-def _wms_capabilities_url(url):
-    """Build a WMS GetCapabilities URL while preserving required vendor parameters."""
-    parts = urllib.parse.urlsplit(url)
-    query = dict(urllib.parse.parse_qsl(parts.query, keep_blank_values=True))
-    query.update({
-        "service": "WMS",
-        "request": "GetCapabilities",
-    })
-    return urllib.parse.urlunsplit(
-        (parts.scheme, parts.netloc, parts.path, urllib.parse.urlencode(query), parts.fragment)
-    )
 
 class AboutDialog(QDialog):
     def __init__(self, parent=None, plugin_dir=None):
