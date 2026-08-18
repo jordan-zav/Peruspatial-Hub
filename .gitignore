@@ -24,3 +24,6 @@ Publicidad/
 push-changes.bat
 subir-release.bat
 generar_zip.bat
+CHANGELOG_INTERNAL.md
+*INTERNAL*.md
+
