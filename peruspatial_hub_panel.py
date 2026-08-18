@@ -52,6 +52,19 @@ ARCGIS_SERVICE_TYPES = {
 MAX_HTTP_RESPONSE_BYTES = 20 * 1024 * 1024
 
 
+def _read_plugin_version():
+    """Read the plugin version from metadata.txt at import time."""
+    import configparser
+    metadata_path = os.path.join(os.path.dirname(__file__), "metadata.txt")
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read(metadata_path, encoding="utf-8")
+    return parser.get("general", "version", fallback="0.0.0")
+
+
+PLUGIN_USER_AGENT = f"PeruSpatial-Hub-QGIS/{_read_plugin_version()}"
+
+
+
 class AboutDialog(QDialog):
     def __init__(self, parent=None, plugin_dir=None):
         super().__init__(parent)
@@ -640,7 +653,7 @@ class PeruSpatialHubPanel(QDockWidget):
                     request_url,
                     timeout=timeout,
                     headers={
-                        "User-Agent": "PeruSpatial-Hub-QGIS/1.0.1",
+                        "User-Agent": PLUGIN_USER_AGENT,
                         "Accept": "application/json",
                     },
                     authcfg=self.auth_config_for_url(url),
@@ -1008,7 +1021,7 @@ class PeruSpatialHubPanel(QDockWidget):
                     capabilities_url,
                     timeout=30,
                     headers={
-                        "User-Agent": "PeruSpatial-Hub-QGIS/1.1.0",
+                        "User-Agent": PLUGIN_USER_AGENT,
                         "Accept": "application/xml,text/xml",
                     },
                     authcfg=self.auth_config_for_url(url),
