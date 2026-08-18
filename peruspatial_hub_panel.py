@@ -15,7 +15,8 @@ from qgis.PyQt.QtNetwork import QNetworkReply, QNetworkRequest
 from qgis.PyQt.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLineEdit, QComboBox, QTreeWidget, QTreeWidgetItem, QPushButton, QToolButton,
-    QLabel, QTextBrowser, QMessageBox, QSplitter, QDialog, QDialogButtonBox
+    QLabel, QTextBrowser, QMessageBox, QSplitter, QDialog, QDialogButtonBox,
+    QMenu, QProgressBar
 )
 from qgis.PyQt.QtGui import QFont, QColor, QPixmap
 from qgis.core import (
@@ -391,6 +392,9 @@ class PeruSpatialHubPanel(QDockWidget):
         self.tree_widget.setColumnWidth(0, 220)
         self.tree_widget.setColumnWidth(1, 100)
         self.tree_widget.setAlternatingRowColors(True)
+        self.tree_widget.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
+        self.tree_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree_widget.customContextMenuRequested.connect(self.show_context_menu)
         self.tree_widget.setStyleSheet("""
             QTreeWidget {
                 border: 1px solid #dcdcdc;
@@ -467,7 +471,19 @@ class PeruSpatialHubPanel(QDockWidget):
         self.btn_service_access.setStyleSheet(
             "background-color: #674ea7; color: white; font-weight: bold; padding: 6px;"
         )
-        self.btn_service_access.setVisible(False)
+
+        self.btn_health_check = QPushButton("Verificar Servidores")
+        self.btn_health_check.setStyleSheet(
+            "background-color: #e65100; color: white; font-weight: bold; padding: 6px;"
+        )
+        self.btn_health_check.setToolTip("Verificar la conectividad de todos los servidores del catálogo")
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("Cargando...")
+        self.progress_bar.setRange(0, 0)  # indeterminate
+        self.progress_bar.setFixedHeight(18)
+        self.progress_bar.setVisible(False)
 
         # Grid configuration
         grid.addWidget(self.btn_add_layer, 0, 0)
@@ -476,7 +492,9 @@ class PeruSpatialHubPanel(QDockWidget):
         grid.addWidget(self.btn_open_browser, 1, 1)
         grid.addWidget(self.btn_register_all, 2, 0)
         grid.addWidget(self.btn_about, 2, 1)
-        grid.addWidget(self.btn_service_access, 3, 0, 1, 2)
+        grid.addWidget(self.btn_health_check, 3, 0)
+        grid.addWidget(self.btn_service_access, 3, 1)
+        grid.addWidget(self.progress_bar, 4, 0, 1, 2)
 
         # Event handlers
         self.btn_add_layer.clicked.connect(self.add_selected_layer)
@@ -486,6 +504,7 @@ class PeruSpatialHubPanel(QDockWidget):
         self.btn_open_browser.clicked.connect(self.open_selected_web)
         self.btn_about.clicked.connect(self.show_about_dialog)
         self.btn_service_access.clicked.connect(self.configure_selected_service_access)
+        self.btn_health_check.clicked.connect(self.check_all_servers_health)
 
     def show_about_dialog(self):
         """Opens the About dialog with developer information and links."""
@@ -495,6 +514,245 @@ class PeruSpatialHubPanel(QDockWidget):
     def show_service_status_dialog(self):
         """Shows the research status of unavailable or restricted services."""
         dialog = ServiceStatusDialog(self)
+        dialog.exec()
+
+    # ------------------------------------------------------------------
+    #  Context menu
+    # ------------------------------------------------------------------
+
+    CONTAINER_TYPES = {"server", "folder", "arcgis_service", "arcgis_group", "ogc_service", "wms_group"}
+    LAYER_TYPES = {"arcgis_map_layer", "arcgis_vector_layer", "arcgis_raster_layer", "wms_layer"}
+
+    def show_context_menu(self, position):
+        """Show a right-click context menu with actions appropriate for the selected node."""
+        item = self.tree_widget.itemAt(position)
+        if not item:
+            return
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data is None:
+            return
+
+        menu = QMenu(self)
+        ntype = data.get("type", "")
+
+        if ntype in self.CONTAINER_TYPES:
+            menu.addAction("📂 Expandir / Colapsar", lambda: item.setExpanded(not item.isExpanded()))
+            if data.get("is_loaded", False):
+                menu.addAction("🔄 Recargar servidor", lambda: self.refresh_node(item))
+            menu.addSeparator()
+            if ntype != "arcgis_group":
+                menu.addAction("📌 Registrar Conexión", self.register_selected_connection)
+            menu.addAction("📋 Copiar URL", self.copy_selected_url)
+            menu.addAction("🌐 Ver en Web", self.open_selected_web)
+        elif ntype in self.LAYER_TYPES:
+            selected = self.tree_widget.selectedItems()
+            if len(selected) > 1:
+                layer_count = sum(
+                    1 for it in selected
+                    if (it.data(0, Qt.ItemDataRole.UserRole) or {}).get("type") in self.LAYER_TYPES
+                )
+                menu.addAction(f"➕ Añadir {layer_count} capas al Mapa", self.add_selected_layer)
+            else:
+                menu.addAction("➕ Añadir al Mapa", self.add_selected_layer)
+            menu.addSeparator()
+            menu.addAction("📋 Copiar URL", self.copy_selected_url)
+            menu.addAction("🌐 Ver en Web", self.open_selected_web)
+            menu.addSeparator()
+            if self._is_favorite(data):
+                menu.addAction("💔 Quitar de Favoritos", lambda: self.remove_from_favorites(item))
+            else:
+                menu.addAction("⭐ Añadir a Favoritos", lambda: self.add_to_favorites(item))
+
+        if self.normalize_auth_scope(data.get("service_url") or data.get("url", "")):
+            menu.addSeparator()
+            menu.addAction("🔐 Configurar acceso privado", self.configure_selected_service_access)
+
+        if menu.actions():
+            menu.exec(self.tree_widget.viewport().mapToGlobal(position))
+
+    # ------------------------------------------------------------------
+    #  Refresh node
+    # ------------------------------------------------------------------
+
+    def refresh_node(self, item):
+        """Force a reload of a previously loaded server, folder or service node."""
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data is None:
+            return
+        data["is_loaded"] = False
+        item.setData(0, Qt.ItemDataRole.UserRole, data)
+        item.takeChildren()
+        dummy = QTreeWidgetItem(item)
+        dummy.setText(0, "Recargando...")
+        item.setExpanded(True)
+
+    # ------------------------------------------------------------------
+    #  Favorites
+    # ------------------------------------------------------------------
+
+    FAVORITES_SETTINGS_KEY = "PeruSpatialHub/favorites"
+
+    def _favorite_key(self, data):
+        """Return a stable identifier for a favorite entry."""
+        return (data.get("url", "") or "") + "|" + (data.get("name", "") or "")
+
+    def _is_favorite(self, data):
+        """Check whether a node is already bookmarked."""
+        key = self._favorite_key(data)
+        return any(self._favorite_key(f) == key for f in self.load_favorites())
+
+    def load_favorites(self):
+        """Load favorites list from QGIS Settings."""
+        raw = QgsSettings().value(self.FAVORITES_SETTINGS_KEY, "")
+        if not raw:
+            return []
+        try:
+            favorites = json.loads(str(raw))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+        return favorites if isinstance(favorites, list) else []
+
+    def save_favorites(self, favorites):
+        """Persist favorites list to QGIS Settings."""
+        settings = QgsSettings()
+        if favorites:
+            settings.setValue(
+                self.FAVORITES_SETTINGS_KEY,
+                json.dumps(favorites, ensure_ascii=False),
+            )
+        else:
+            settings.remove(self.FAVORITES_SETTINGS_KEY)
+
+    def add_to_favorites(self, item):
+        """Bookmark the selected layer for quick access."""
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data is None:
+            return
+        # Store only the essential fields, no internal keys
+        storable = {
+            k: v for k, v in data.items()
+            if k not in {"_search_text", "_catalog_result", "is_loaded"}
+        }
+        favorites = self.load_favorites()
+        key = self._favorite_key(storable)
+        if any(self._favorite_key(f) == key for f in favorites):
+            return  # already bookmarked
+        favorites.append(storable)
+        self.save_favorites(favorites)
+        self.populate_favorites_tree()
+        self.iface.messageBar().pushMessage(
+            "PeruSpatial Hub",
+            f"'{storable.get('name', '')}' añadido a Favoritos.",
+            level=3, duration=2,
+        )
+
+    def remove_from_favorites(self, item):
+        """Remove the selected entry from bookmarks."""
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data is None:
+            return
+        key = self._favorite_key(data)
+        favorites = [f for f in self.load_favorites() if self._favorite_key(f) != key]
+        self.save_favorites(favorites)
+        self.populate_favorites_tree()
+        self.iface.messageBar().pushMessage(
+            "PeruSpatial Hub",
+            f"'{data.get('name', '')}' eliminado de Favoritos.",
+            level=3, duration=2,
+        )
+
+    def populate_favorites_tree(self):
+        """Rebuild the favorites branch from persisted bookmarks."""
+        if not hasattr(self, "favorites_root"):
+            return
+        self.favorites_root.takeChildren()
+        favorites = self.load_favorites()
+        if not favorites:
+            placeholder = QTreeWidgetItem(self.favorites_root)
+            placeholder.setText(0, "Sin favoritos. Use clic derecho → ⭐ para agregar.")
+            placeholder.setForeground(0, QColor("#888"))
+            return
+        for fav in favorites:
+            fav_item = QTreeWidgetItem(self.favorites_root)
+            inst = fav.get("institution", "")
+            fav_item.setText(0, f"{inst} — {fav.get('name', 'Sin nombre')}" if inst else fav.get("name", "Sin nombre"))
+            fav_item.setText(1, self.friendly_type(fav.get("stype", fav.get("type", ""))))
+            fav_item.setToolTip(0, fav.get("url", ""))
+            fav_item.setData(0, Qt.ItemDataRole.UserRole, fav)
+            # If it is a container type, allow live expansion
+            if fav.get("type") in self.CONTAINER_TYPES:
+                fav["is_loaded"] = False
+                fav_item.setData(0, Qt.ItemDataRole.UserRole, fav)
+                dummy = QTreeWidgetItem(fav_item)
+                dummy.setText(0, "Expandir para consultar en vivo...")
+
+    # ------------------------------------------------------------------
+    #  Health check
+    # ------------------------------------------------------------------
+
+    def check_all_servers_health(self):
+        """Test connectivity to every live server and show the results in a dialog."""
+        from qgis.PyQt.QtWidgets import QApplication
+
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, len(self.live_servers))
+        self.progress_bar.setValue(0)
+        self.btn_health_check.setEnabled(False)
+        QApplication.processEvents()
+
+        results = []
+        for idx, server in enumerate(self.live_servers):
+            self.progress_bar.setFormat(f"Verificando {server['institution']}...")
+            self.progress_bar.setValue(idx)
+            QApplication.processEvents()
+            try:
+                if server["stype"] == "arcgis_rest":
+                    self.fetch_arcgis_json(server["url"], timeout=8, attempts=1)
+                else:
+                    self.read_service_https(
+                        _wms_capabilities_url(server["url"]),
+                        timeout=8,
+                        headers={"User-Agent": PLUGIN_USER_AGENT, "Accept": "application/xml,text/xml"},
+                        authcfg=self.auth_config_for_url(server["url"]),
+                    )
+                results.append((server, True, ""))
+            except Exception as exc:
+                results.append((server, False, str(exc)))
+
+        self.progress_bar.setValue(len(self.live_servers))
+        self.progress_bar.setVisible(False)
+        self.btn_health_check.setEnabled(True)
+
+        online = sum(1 for _, ok, _ in results if ok)
+        offline = len(results) - online
+
+        html_rows = []
+        for server, ok, error in results:
+            color = "#274e13" if ok else "#a20000"
+            icon = "✅" if ok else "❌"
+            name = f"{server['institution']} - {server['name']}"
+            detail = "" if ok else f"<br><small style='color:#666'>{error[:120]}</small>"
+            html_rows.append(f"<tr><td>{icon}</td><td style='color:{color}'>{name}{detail}</td></tr>")
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Estado de Servidores")
+        dialog.setMinimumSize(560, 400)
+        layout = QVBoxLayout(dialog)
+
+        summary = QLabel(
+            f"<h3>Verificación completada</h3>"
+            f"<p><b style='color:#274e13'>{online} en línea</b> · "
+            f"<b style='color:#a20000'>{offline} sin respuesta</b></p>"
+        )
+        layout.addWidget(summary)
+
+        browser = QTextBrowser()
+        browser.setHtml(f"<table cellpadding='4'>{''.join(html_rows)}</table>")
+        layout.addWidget(browser)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        buttons.accepted.connect(dialog.accept)
+        layout.addWidget(buttons)
         dialog.exec()
 
     @classmethod
@@ -739,9 +997,19 @@ class PeruSpatialHubPanel(QDockWidget):
             dummy = QTreeWidgetItem(server_item)
             dummy.setText(0, "Expandir para explorar...")
 
+        # Favorites section
+        self.favorites_root = QTreeWidgetItem(self.tree_widget)
+        self.favorites_root.setText(0, "⭐ Favoritos")
+        self.favorites_root.setFont(0, QFont("Segoe UI", 10, QFont.Weight.Bold))
+        self.favorites_root.setForeground(0, QColor("#bf8f00"))
+        self.favorites_root.setData(0, Qt.ItemDataRole.UserRole, None)
+        self.populate_favorites_tree()
+
         # Start with every repository and folder closed. Remote catalogs are
         # loaded only when the user explicitly expands one of them.
         self.tree_widget.collapseAll()
+        if self.favorites_root.childCount():
+            self.favorites_root.setExpanded(True)
 
     def friendly_type(self, type_str):
         """Translates technical connection type to friendly name."""
@@ -1323,12 +1591,26 @@ class PeruSpatialHubPanel(QDockWidget):
                 "Si usa capas históricas en <b>PSAD56</b>, aplique la transformación a WGS84 para evitar desfases."
             )
             self.btn_add_layer.setEnabled(False)
+            self.btn_add_layer.setText("Añadir al Mapa")
             self.btn_register_browser.setEnabled(False)
             self.btn_copy_url.setEnabled(False)
             self.btn_open_browser.setEnabled(False)
             self.btn_service_access.setEnabled(False)
             self.btn_service_access.setText("Configurar acceso privado")
         else:
+            selected_items = self.tree_widget.selectedItems()
+            if len(selected_items) > 1:
+                layer_count = sum(
+                    1 for it in selected_items
+                    if (it.data(0, Qt.ItemDataRole.UserRole) or {}).get("type") in self.LAYER_TYPES
+                )
+                if layer_count > 1:
+                    self.btn_add_layer.setText(f"Añadir {layer_count} Capas")
+                    self.btn_add_layer.setEnabled(True)
+                else:
+                    self.btn_add_layer.setText("Añadir al Mapa")
+            else:
+                self.btn_add_layer.setText("Añadir al Mapa")
             service_url = s.get("service_url") or s.get("url", "")
             has_auth = bool(self.auth_config_for_url(service_url))
             self.btn_service_access.setEnabled(bool(self.normalize_auth_scope(service_url)))
@@ -1508,28 +1790,14 @@ class PeruSpatialHubPanel(QDockWidget):
             uri.setAuthConfigId(authcfg)
         return QgsRasterLayer(uri.uri(False), name, "wms")
 
-    def add_selected_layer(self):
-        """Add one native ArcGIS REST or WMS layer."""
-        selected_items = self.tree_widget.selectedItems()
-        if not selected_items:
-            return
-
-        s = selected_items[0].data(0, Qt.ItemDataRole.UserRole)
-        if not s or s.get("type") in ["server", "folder", "arcgis_service", "arcgis_group", "ogc_service", "wms_group"]:
-            return
-
-        from qgis.PyQt.QtWidgets import QApplication
-        name = s["name"]
+    def _instantiate_layer(self, s):
+        """Helper to create and validate a layer object from its metadata dictionary."""
+        name = s.get("name", "Capa")
         layer_type = s.get("type")
         attempts = []
         layer = None
         metadata = {}
 
-        self.iface.messageBar().pushMessage(
-            "PeruSpatial Hub", f"Consultando capa: {name}...", level=0, duration=2
-        )
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        QApplication.processEvents()
         try:
             if layer_type == "arcgis_vector_layer":
                 layer = self.create_arcgis_vector_layer(s["url"], name)
@@ -1583,29 +1851,90 @@ class PeruSpatialHubPanel(QDockWidget):
             else:
                 attempts.append(f"Tipo no importable: {layer_type}")
 
-            if layer and layer.isValid():
-                QgsProject.instance().addMapLayer(layer)
-                data_kind = "vectorial" if isinstance(layer, QgsVectorLayer) else "raster"
-                source_kind = "WMS" if layer_type == "wms_layer" else "REST"
+        except Exception as exc:
+            attempts.append(str(exc))
+
+        return layer, attempts
+
+    def add_selected_layer(self):
+        """Add native ArcGIS REST or WMS layer(s) to the map. Supports multi-selection."""
+        selected_items = self.tree_widget.selectedItems()
+        if not selected_items:
+            return
+
+        valid_items = [
+            item for item in selected_items
+            if item.data(0, Qt.ItemDataRole.UserRole)
+            and item.data(0, Qt.ItemDataRole.UserRole).get("type") in self.LAYER_TYPES
+        ]
+        if not valid_items:
+            return
+
+        from qgis.PyQt.QtWidgets import QApplication
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, len(valid_items))
+        self.progress_bar.setValue(0)
+        QApplication.processEvents()
+
+        added_count = 0
+        failed_items = []
+
+        try:
+            for idx, item in enumerate(valid_items):
+                s = item.data(0, Qt.ItemDataRole.UserRole)
+                name = s.get("name", "Capa")
+                self.progress_bar.setFormat(f"Cargando ({idx + 1}/{len(valid_items)}): {name[:25]}...")
+                self.progress_bar.setValue(idx)
+                QApplication.processEvents()
+
+                layer, attempts = self._instantiate_layer(s)
+                if layer and layer.isValid():
+                    QgsProject.instance().addMapLayer(layer)
+                    added_count += 1
+                else:
+                    detail = "; ".join(attempts) or "error de proveedor"
+                    failed_items.append((name, detail))
+
+            self.progress_bar.setValue(len(valid_items))
+        finally:
+            self.progress_bar.setVisible(False)
+            QApplication.restoreOverrideCursor()
+
+        if len(valid_items) == 1:
+            if added_count == 1:
+                name = valid_items[0].data(0, Qt.ItemDataRole.UserRole).get("name", "")
                 self.iface.messageBar().pushMessage(
                     "PeruSpatial Hub",
-                    f"Capa {data_kind} {source_kind} '{name}' añadida correctamente.",
+                    f"Capa '{name}' añadida correctamente.",
                     level=3,
                     duration=4,
                 )
-                return
-        except Exception as exc:
-            attempts.append(str(exc))
-        finally:
-            QApplication.restoreOverrideCursor()
-
-        detail = "\n".join(f"- {message}" for message in attempts) or "- Error desconocido"
-        QMessageBox.warning(
-            self,
-            "Error al importar capa",
-            f"No se pudo cargar la capa '{name}'.\n\n{detail}\n\n"
-            "Revise la disponibilidad del servicio y la compatibilidad del proveedor QGIS.",
-        )
+            else:
+                name, detail = failed_items[0]
+                QMessageBox.warning(
+                    self,
+                    "Error al importar capa",
+                    f"No se pudo cargar la capa '{name}'.\n\n- {detail}\n\n"
+                    "Revise la disponibilidad del servicio y la compatibilidad del proveedor QGIS.",
+                )
+        else:
+            msg = f"Se añadieron {added_count} de {len(valid_items)} capas al mapa."
+            if failed_items:
+                msg += f" ({len(failed_items)} fallaron)"
+            self.iface.messageBar().pushMessage(
+                "PeruSpatial Hub",
+                msg,
+                level=3 if added_count > 0 else 2,
+                duration=5,
+            )
+            if failed_items and added_count == 0:
+                errors_text = "\n".join(f"- {n}: {d}" for n, d in failed_items[:10])
+                QMessageBox.warning(
+                    self,
+                    "Error en carga por lotes",
+                    f"No se pudo cargar ninguna de las capas seleccionadas:\n\n{errors_text}",
+                )
 
     def register_selected_connection(self):
         """Registers the selected service in QGIS Settings for Browser panel integration."""

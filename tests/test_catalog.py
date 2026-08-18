@@ -97,3 +97,26 @@ def test_search_signal_path_contains_no_network_calls():
 
     assert "self.search_timer.timeout.connect(self.apply_catalog_search)" in source
     assert "perform_deep_search" not in source
+
+
+def test_panel_methods_exist_and_parse_cleanly():
+    source = (ROOT / "peruspatial_hub_panel.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    methods = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    expected_new_methods = {
+        "show_context_menu",
+        "refresh_node",
+        "load_favorites",
+        "save_favorites",
+        "add_to_favorites",
+        "remove_from_favorites",
+        "populate_favorites_tree",
+        "check_all_servers_health",
+        "_instantiate_layer",
+    }
+    assert expected_new_methods.issubset(methods)
+
