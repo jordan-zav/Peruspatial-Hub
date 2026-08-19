@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.0 - 2026-08-18
+
+- Menú contextual (clic derecho) con opciones específicas para servidores, carpetas, capas y autenticación.
+- Nueva sección fija de **Favoritos** persistente en la configuración de QGIS.
+- Carga de capas por lotes mediante multi-selección (`Ctrl+Clic` / `Shift+Clic`).
+- Recarga dinámica de servidores y subcarpetas en vivo sin reiniciar QGIS.
+- Verificador masivo de salud y conectividad de todos los servidores oficiales del catálogo.
+- Barra de progreso visual integrada para feedback de tareas en segundo plano.
+- Asistente interactivo de empaquetado y validación de estándares QGIS (`crear_release.bat`).
+- User-Agent dinámico sincronizado con la versión de `metadata.txt`.
+
 ## 1.1.2 - 2026-08-16
 
 - Sustituye la exploración remota automática por búsqueda sobre un inventario local.
