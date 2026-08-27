@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0 - 2026-08-26
+
+- Las consultas de catálogos remotos y la verificación masiva se ejecutan en segundo plano para evitar bloqueos de QGIS.
+- Corregida la recarga de servidores cuando el nodo ya estaba expandido.
+- Corregida la copia de URL al portapapeles.
+
 ## 1.2.0 - 2026-08-18
 
 - Menú contextual (clic derecho) con opciones específicas para servidores, carpetas, capas y autenticación.

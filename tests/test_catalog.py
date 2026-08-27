@@ -120,3 +120,8 @@ def test_panel_methods_exist_and_parse_cleanly():
     }
     assert expected_new_methods.issubset(methods)
 
+
+def test_remote_catalog_and_health_checks_use_background_tasks():
+    source = (ROOT / "peruspatial_hub_panel.py").read_text(encoding="utf-8")
+    assert source.count("QgsTask.fromFunction(") >= 2
+

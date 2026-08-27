@@ -67,6 +67,7 @@ class PeruSpatialHub(object):
             self.iface.removePluginMenu("PeruSpatial Hub", self.action)
 
         if self.dock_widget:
+            self.dock_widget.cancel_background_tasks()
             self.iface.removeDockWidget(self.dock_widget)
             self.dock_widget.deleteLater()
             self.dock_widget = None

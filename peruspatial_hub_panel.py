@@ -21,7 +21,7 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtGui import QFont, QColor, QPixmap
 from qgis.core import (
     QgsSettings, QgsRasterLayer, QgsVectorLayer, QgsProject, QgsDataSourceUri,
-    QgsCoordinateReferenceSystem, QgsNetworkAccessManager
+    QgsCoordinateReferenceSystem, QgsNetworkAccessManager, QgsApplication, QgsTask
 )
 from qgis.gui import QgsAuthConfigSelect
 
@@ -226,6 +226,8 @@ class PeruSpatialHubPanel(QDockWidget):
         super(PeruSpatialHubPanel, self).__init__(parent)
         self.iface = iface
         self.plugin_dir = plugin_dir
+        self._background_tasks = set()
+        self._shutting_down = False
         self.auth_scopes = self.load_auth_scopes()
         self.setWindowTitle("PeruSpatial Hub")
         self.setAllowedAreas(
@@ -584,7 +586,10 @@ class PeruSpatialHubPanel(QDockWidget):
         item.takeChildren()
         dummy = QTreeWidgetItem(item)
         dummy.setText(0, "Recargando...")
-        item.setExpanded(True)
+        if item.isExpanded():
+            self.load_dynamic_node(item)
+        else:
+            item.setExpanded(True)
 
     # ------------------------------------------------------------------
     #  Favorites
@@ -691,37 +696,80 @@ class PeruSpatialHubPanel(QDockWidget):
     # ------------------------------------------------------------------
 
     def check_all_servers_health(self):
-        """Test connectivity to every live server and show the results in a dialog."""
-        from qgis.PyQt.QtWidgets import QApplication
-
+        """Test every live server without blocking QGIS' interface thread."""
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, len(self.live_servers))
+        self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("Verificando servidores en segundo plano...")
         self.btn_health_check.setEnabled(False)
-        QApplication.processEvents()
+        servers = [dict(server) for server in self.live_servers]
+        auth_configs = {
+            server["url"]: self.auth_config_for_url(server["url"])
+            for server in servers
+        }
 
-        results = []
-        for idx, server in enumerate(self.live_servers):
-            self.progress_bar.setFormat(f"Verificando {server['institution']}...")
-            self.progress_bar.setValue(idx)
-            QApplication.processEvents()
-            try:
-                if server["stype"] == "arcgis_rest":
-                    self.fetch_arcgis_json(server["url"], timeout=8, attempts=1)
-                else:
-                    self.read_service_https(
-                        _wms_capabilities_url(server["url"]),
-                        timeout=8,
-                        headers={"User-Agent": PLUGIN_USER_AGENT, "Accept": "application/xml,text/xml"},
-                        authcfg=self.auth_config_for_url(server["url"]),
-                    )
-                results.append((server, True, ""))
-            except Exception as exc:
-                results.append((server, False, str(exc)))
+        def worker(task):
+            results = []
+            total = max(1, len(servers))
+            for idx, server in enumerate(servers):
+                if task.isCanceled():
+                    return None
+                try:
+                    if server["stype"] == "arcgis_rest":
+                        self.fetch_arcgis_json(
+                            server["url"],
+                            timeout=8,
+                            attempts=1,
+                            authcfg=auth_configs[server["url"]],
+                        )
+                    else:
+                        self.read_service_https(
+                            _wms_capabilities_url(server["url"]),
+                            timeout=8,
+                            headers={
+                                "User-Agent": PLUGIN_USER_AGENT,
+                                "Accept": "application/xml,text/xml",
+                            },
+                            authcfg=auth_configs[server["url"]],
+                        )
+                    results.append((server, True, ""))
+                except Exception as exc:
+                    results.append((server, False, str(exc)))
+                task.setProgress(((idx + 1) / total) * 100)
+            return results
 
-        self.progress_bar.setValue(len(self.live_servers))
-        self.progress_bar.setVisible(False)
-        self.btn_health_check.setEnabled(True)
+        task_holder = {}
+
+        def finished(exception, results=None):
+            task = task_holder.get("task")
+            if task is not None:
+                self._background_tasks.discard(task)
+            if self._shutting_down:
+                return
+            self.progress_bar.setVisible(False)
+            self.btn_health_check.setEnabled(True)
+            if exception is not None:
+                QMessageBox.warning(self, "Error de verificación", str(exception))
+                return
+            if results is None:
+                return
+            self.show_health_results(results)
+
+        task = QgsTask.fromFunction(
+            "PeruSpatial Hub: verificar servidores",
+            worker,
+            on_finished=finished,
+        )
+        task_holder["task"] = task
+        task.progressChanged.connect(
+            lambda value: self.progress_bar.setValue(int(value))
+            if not self._shutting_down else None
+        )
+        self._background_tasks.add(task)
+        QgsApplication.taskManager().addTask(task)
+
+    def show_health_results(self, results):
+        """Display server health results after the background task finishes."""
 
         online = sum(1 for _, ok, _ in results if ok)
         offline = len(results) - online
@@ -901,9 +949,10 @@ class PeruSpatialHubPanel(QDockWidget):
             raise RuntimeError("la respuesta del servidor excede el límite permitido")
         return payload
 
-    def fetch_arcgis_json(self, url, timeout=15, attempts=2):
+    def fetch_arcgis_json(self, url, timeout=15, attempts=2, authcfg=None):
         """Read ArcGIS REST metadata with one retry for intermittent public servers."""
         request_url = _url_with_json(url)
+        request_authcfg = self.auth_config_for_url(url) if authcfg is None else authcfg
         last_error = None
         for attempt in range(attempts):
             try:
@@ -914,7 +963,7 @@ class PeruSpatialHubPanel(QDockWidget):
                         "User-Agent": PLUGIN_USER_AGENT,
                         "Accept": "application/json",
                     },
-                    authcfg=self.auth_config_for_url(url),
+                    authcfg=request_authcfg,
                 )
                 data = json.loads(payload.decode("utf-8-sig"))
                 if not isinstance(data, dict):
@@ -1182,140 +1231,184 @@ class PeruSpatialHubPanel(QDockWidget):
     def on_item_expanded(self, item):
         """Called when a tree node is expanded. Loads subfolders/services dynamically."""
         node_data = item.data(0, Qt.ItemDataRole.UserRole)
-        if node_data and node_data.get("type") in ["server", "folder", "arcgis_service", "ogc_service"] and not node_data.get("is_loaded", False):
+        if (
+            node_data
+            and node_data.get("type") in ["server", "folder", "arcgis_service", "ogc_service"]
+            and not node_data.get("is_loaded", False)
+            and not node_data.get("is_loading", False)
+        ):
             self.load_dynamic_node(item)
 
     def load_dynamic_node(self, item):
+        """Fetch a remote catalog in a QGIS task, then update the tree on the GUI thread."""
         node_data = item.data(0, Qt.ItemDataRole.UserRole)
         url = node_data["url"]
         stype = node_data["stype"]
-        inst = node_data["institution"]
-        cat = node_data["category"]
-
-        from qgis.PyQt.QtWidgets import QApplication
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        
+        authcfg = self.auth_config_for_url(url)
+        discovering_catalog = self._discovering_catalog
+        node_data["is_loading"] = True
+        item.setData(0, Qt.ItemDataRole.UserRole, node_data)
         item.takeChildren()
         loading_node = QTreeWidgetItem(item)
         loading_node.setText(0, "Cargando...")
-        QApplication.processEvents()
         if self._search_cancelled or not self.isVisible():
             if loading_node.parent() is item:
                 item.removeChild(loading_node)
-            QApplication.restoreOverrideCursor()
+            node_data["is_loading"] = False
+            item.setData(0, Qt.ItemDataRole.UserRole, node_data)
             return
 
-        loaded_ok = False
-        try:
+        def worker(task):
+            if task.isCanceled():
+                return None
             if stype == "arcgis_rest":
                 data = self.fetch_arcgis_json(
                     url,
-                    timeout=6 if self._discovering_catalog else 15,
-                    attempts=1 if self._discovering_catalog else 2,
+                    timeout=6 if discovering_catalog else 15,
+                    attempts=1 if discovering_catalog else 2,
+                    authcfg=authcfg,
                 )
-                    
-                # Folders
-                for f in data.get("folders", []):
-                    folder_name = f
-                    furl = _append_rest_path(url, folder_name)
-
-                    f_item = QTreeWidgetItem(item)
-                    f_item.setText(0, folder_name)
-                    f_item.setText(1, "Carpeta REST")
-                    f_item.setFont(0, QFont("Segoe UI", 9, QFont.Weight.Bold))
-                    f_item.setData(0, Qt.ItemDataRole.UserRole, {
-                        "type": "folder",
-                        "stype": "arcgis_rest",
-                        "url": furl,
-                        "is_loaded": False,
-                        "name": folder_name,
-                        "institution": inst,
-                        "category": cat,
-                    })
-                    dummy = QTreeWidgetItem(f_item)
-                    dummy.setText(0, "Expandir para explorar...")
-
-                # Services
-                for s in data.get("services", []):
-                    sname = s.get("name")
-                    stype_str = s.get("type")
-                    if not sname or stype_str not in ("MapServer", "FeatureServer", "ImageServer"):
-                        continue
-                    
-                    friendly_type = None
-                    if stype_str == "MapServer":
-                        friendly_type = "arcgis_mapserver"
-                    elif stype_str == "FeatureServer":
-                        friendly_type = "arcgisfeatureserver"
-                    elif stype_str == "ImageServer":
-                        friendly_type = "arcgis_imageserver"
-                    
-                    sname_short = sname.split('/')[-1]
-                    surl = _service_url(url, sname, stype_str)
-                    is_image = stype_str == "ImageServer"
-                    
-                    s_item = QTreeWidgetItem(item)
-                    s_item.setText(0, sname_short)
-                    s_item.setText(1, self.friendly_type(friendly_type))
-                    s_item.setData(0, Qt.ItemDataRole.UserRole, {
-                        "type": "arcgis_raster_layer" if is_image else "arcgis_service",
-                        "stype": friendly_type,
-                        "service_kind": stype_str,
-                        "url": surl,
-                        "name": sname_short,
-                        "institution": inst,
-                        "category": cat,
-                        "description": f"Servicio REST {stype_str} en vivo provisto por {inst}.",
-                        "is_loaded": is_image,
-                    })
-                    if not is_image:
-                        dummy = QTreeWidgetItem(s_item)
-                        dummy.setText(0, "Expandir para ver capas REST...")
-
-                loaded_ok = True
-
-            elif node_data.get("type") == "arcgis_service":
+                return "arcgis_directory", data
+            if node_data.get("type") == "arcgis_service":
                 data = self.fetch_arcgis_json(
                     url,
-                    timeout=6 if self._discovering_catalog else 15,
-                    attempts=1 if self._discovering_catalog else 2,
+                    timeout=6 if discovering_catalog else 15,
+                    attempts=1 if discovering_catalog else 2,
+                    authcfg=authcfg,
                 )
-                self.populate_arcgis_service_layers(item, node_data, data)
-                loaded_ok = True
-
-            elif stype == "wms":
-                capabilities_url = _wms_capabilities_url(url)
+                return "arcgis_service", data
+            if stype == "wms":
                 payload = self.read_service_https(
-                    capabilities_url,
+                    _wms_capabilities_url(url),
                     timeout=30,
                     headers={
                         "User-Agent": PLUGIN_USER_AGENT,
                         "Accept": "application/xml,text/xml",
                     },
-                    authcfg=self.auth_config_for_url(url),
+                    authcfg=authcfg,
                 )
-                self.populate_wms_layers(item, node_data, payload)
+                return "wms", payload
+            raise RuntimeError(f"Tipo REST no compatible: {stype}")
+
+        task_holder = {}
+
+        def finished(exception, result=None):
+            task = task_holder.get("task")
+            if task is not None:
+                self._background_tasks.discard(task)
+            if self._shutting_down:
+                return
+            try:
+                if item.treeWidget() is not self.tree_widget:
+                    return
+            except RuntimeError:
+                return
+
+            loaded_ok = False
+            try:
+                item.takeChildren()
+                if exception is not None:
+                    raise exception
+                if result is None:
+                    raise RuntimeError("carga cancelada")
+
+                result_kind, payload = result
+                if result_kind == "arcgis_directory":
+                    inst = node_data["institution"]
+                    cat = node_data["category"]
+
+                    # Folders
+                    for f in payload.get("folders", []):
+                        folder_name = f
+                        furl = _append_rest_path(url, folder_name)
+
+                        f_item = QTreeWidgetItem(item)
+                        f_item.setText(0, folder_name)
+                        f_item.setText(1, "Carpeta REST")
+                        f_item.setFont(0, QFont("Segoe UI", 9, QFont.Weight.Bold))
+                        f_item.setData(0, Qt.ItemDataRole.UserRole, {
+                            "type": "folder",
+                            "stype": "arcgis_rest",
+                            "url": furl,
+                            "is_loaded": False,
+                            "name": folder_name,
+                            "institution": inst,
+                            "category": cat,
+                        })
+                        dummy = QTreeWidgetItem(f_item)
+                        dummy.setText(0, "Expandir para explorar...")
+
+                    # Services
+                    for s in payload.get("services", []):
+                        sname = s.get("name")
+                        stype_str = s.get("type")
+                        if not sname or stype_str not in (
+                            "MapServer", "FeatureServer", "ImageServer"
+                        ):
+                            continue
+
+                        friendly_type = None
+                        if stype_str == "MapServer":
+                            friendly_type = "arcgis_mapserver"
+                        elif stype_str == "FeatureServer":
+                            friendly_type = "arcgisfeatureserver"
+                        elif stype_str == "ImageServer":
+                            friendly_type = "arcgis_imageserver"
+
+                        sname_short = sname.split('/')[-1]
+                        surl = _service_url(url, sname, stype_str)
+                        is_image = stype_str == "ImageServer"
+
+                        s_item = QTreeWidgetItem(item)
+                        s_item.setText(0, sname_short)
+                        s_item.setText(1, self.friendly_type(friendly_type))
+                        s_item.setData(0, Qt.ItemDataRole.UserRole, {
+                            "type": "arcgis_raster_layer" if is_image else "arcgis_service",
+                            "stype": friendly_type,
+                            "service_kind": stype_str,
+                            "url": surl,
+                            "name": sname_short,
+                            "institution": inst,
+                            "category": cat,
+                            "description": f"Servicio REST {stype_str} en vivo provisto por {inst}.",
+                            "is_loaded": is_image,
+                        })
+                        if not is_image:
+                            dummy = QTreeWidgetItem(s_item)
+                            dummy.setText(0, "Expandir para ver capas REST...")
+
+                elif result_kind == "arcgis_service":
+                    self.populate_arcgis_service_layers(item, node_data, payload)
+                else:
+                    self.populate_wms_layers(item, node_data, payload)
                 loaded_ok = True
+            except Exception as exc:
+                error_node = QTreeWidgetItem(item)
+                error_node.setText(0, f"Error al cargar: {str(exc)}")
+                error_node.setText(1, "Reintentar al expandir")
+                error_node.setForeground(0, QColor("red"))
+            finally:
+                node_data["is_loaded"] = loaded_ok
+                node_data["is_loading"] = False
+                item.setData(0, Qt.ItemDataRole.UserRole, node_data)
+                if self.search_input.text().strip() and not self._discovering_catalog:
+                    self.filter_services()
 
-            else:
-                raise RuntimeError(f"Tipo REST no compatible: {stype}")
+        task = QgsTask.fromFunction(
+            f"PeruSpatial Hub: cargar {node_data.get('name', 'servicio')}",
+            worker,
+            on_finished=finished,
+        )
+        task_holder["task"] = task
+        self._background_tasks.add(task)
+        QgsApplication.taskManager().addTask(task)
 
-        except Exception as e:
-            error_node = QTreeWidgetItem(item)
-            error_node.setText(0, f"Error al cargar: {str(e)}")
-            error_node.setText(1, "Reintentar al expandir")
-            error_node.setForeground(0, QColor("red"))
-            
-        finally:
-            if loading_node.parent() is item:
-                item.removeChild(loading_node)
-            node_data["is_loaded"] = loaded_ok
-            item.setData(0, Qt.ItemDataRole.UserRole, node_data)
-            QApplication.restoreOverrideCursor()
-            # Keep an active search consistent when a matching folder/service
-            # is expanded and its nested layers are loaded on demand.
-            if self.search_input.text().strip() and not self._discovering_catalog:
-                self.filter_services()
+    def cancel_background_tasks(self):
+        """Prevent callbacks from touching the panel while the plugin is unloading."""
+        self._shutting_down = True
+        for task in tuple(self._background_tasks):
+            task.cancel()
+        self._background_tasks.clear()
 
     @staticmethod
     def parse_wms_layer_catalog(payload):
@@ -2028,7 +2121,8 @@ class PeruSpatialHubPanel(QDockWidget):
         
         s = selected_items[0].data(0, Qt.ItemDataRole.UserRole)
         if s is not None:
-            clipboard = self.iface.mainWindow().clipboard()
+            from qgis.PyQt.QtWidgets import QApplication
+            clipboard = QApplication.clipboard()
             clipboard.setText(s["url"])
             self.iface.messageBar().pushMessage(
                 "PeruSpatial Hub",
