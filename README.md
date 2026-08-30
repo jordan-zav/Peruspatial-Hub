@@ -1,17 +1,53 @@
+<div align="center">
+  <img src="logo_solo.png" alt="PeruSpatial Hub" width="112">
+
 # PeruSpatial Hub
 
-<p align="center">
-  <a href="https://github.com/jordan-zav/Peruspatial-Hub/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/jordan-zav/Peruspatial-Hub?style=flat-square"></a>
-  <a href="https://github.com/jordan-zav/Peruspatial-Hub/actions/workflows/tests.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/jordan-zav/Peruspatial-Hub/tests.yml?branch=main&label=tests&style=flat-square"></a>
-  <img alt="QGIS 3.34+" src="https://img.shields.io/badge/QGIS-3.34%2B-589632?style=flat-square&logo=qgis&logoColor=white">
-  <a href="LICENSE"><img alt="GNU GPLv3" src="https://img.shields.io/badge/License-GPLv3-blue?style=flat-square"></a>
-</p>
+**Official Peruvian geospatial services, searchable and loadable inside QGIS**
+
+Explore ArcGIS REST and WMS directories from public institutions, search a
+bundled offline catalog and load native raster or vector services without
+copying opaque viewer URLs.
+
+[![Source 1.3.0](https://img.shields.io/badge/source-1.3.0-2563eb)](metadata.txt)
+[![Release](https://img.shields.io/github/v/release/jordan-zav/Peruspatial-Hub?color=7c3aed)](https://github.com/jordan-zav/Peruspatial-Hub/releases/latest)
+[![Tests](https://img.shields.io/github/actions/workflow/status/jordan-zav/Peruspatial-Hub/tests.yml?branch=main&label=tests)](https://github.com/jordan-zav/Peruspatial-Hub/actions/workflows/tests.yml)
+[![QGIS 3.34+](https://img.shields.io/badge/QGIS-3.34%2B-589632?logo=qgis&logoColor=white)](https://qgis.org/)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-0f766e)](LICENSE)
+
+</div>
+
+> [!IMPORTANT]
+> The catalog describes third-party public services whose availability,
+> schemas and access policies can change without a plugin update. Always retain
+> institutional attribution and verify datum/CRS before analysis.
+
+PeruSpatial Hub centraliza el acceso a infraestructuras de datos espaciales de
+instituciones públicas del Perú para geología, geografía, teledetección,
+ambiente, hidrocarburos, hidrogeología, arqueología y gestión territorial.
+
+La rama fuente declara la versión **1.3.0**; la insignia de Release muestra el
+último ZIP efectivamente publicado, que puede ir una versión detrás del código.
 
 Versión estable: 1.3.0
 
-**PeruSpatial Hub** es un plugin para QGIS diseñado para centralizar y facilitar el acceso a la Infraestructura de Datos Espaciales (IDE) de las principales instituciones públicas del Perú. 
+## Flujo general
 
-Este plugin es una herramienta indispensable para profesionales en **geología, geografía, teledetección, ingeniería ambiental, logística administrativa, hidrocarburos e hidrogeología**, ya que permite explorar e integrar de forma inmediata la cartografía base y temática del país.
+```text
+Catálogo local de instituciones y servicios
+                    │
+                    ▼
+ Búsqueda instantánea sin consultar internet
+                    │
+                    ▼
+ Expansión explícita ──► consulta REST/WMS en vivo
+                    │
+                    ▼
+ Subcapa raster/vector ──► proveedor nativo de QGIS
+                    │
+                    ▼
+ Proyecto QGIS + atribución + control de datum/CRS
+```
 
 ## Búsqueda local instantánea
 
@@ -110,3 +146,20 @@ python scripts/package_plugin.py
 ```
 
 El empaquetador crea un ZIP con la carpeta `peruspatial_hub` requerida por QGIS.
+
+## Estado del proyecto
+
+La fuente 1.3.0 se encuentra en desarrollo activo. El catálogo local y las
+funciones puras tienen pruebas automatizadas; antes de cada release también se
+deben verificar el ZIP, la carga del complemento y una muestra de servicios en
+QGIS. Que un endpoint responda no garantiza que todas sus subcapas, metadatos o
+políticas permanezcan sin cambios.
+
+## Licencia y atribución
+
+PeruSpatial Hub se distribuye bajo la [GNU General Public License v3.0](LICENSE).
+Los datos y servicios consultados no cambian de licencia: conservan la autoría,
+atribución y condiciones de cada institución pública proveedora.
+
+Jordan Zavaleta — GisGeo Dev<br>
+[jordanzav@gisgeo.dev](mailto:jordanzav@gisgeo.dev) · [gisgeo.dev](https://gisgeo.dev)
