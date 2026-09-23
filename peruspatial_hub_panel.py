@@ -9,6 +9,7 @@ import webbrowser
 import urllib.parse
 import json
 import time
+from html import escape
 
 from qgis.PyQt.QtCore import Qt, QTimer, QUrl, QByteArray, QXmlStreamReader
 from qgis.PyQt.QtNetwork import QNetworkReply, QNetworkRequest
@@ -16,9 +17,9 @@ from qgis.PyQt.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLineEdit, QComboBox, QTreeWidget, QTreeWidgetItem, QPushButton, QToolButton,
     QLabel, QTextBrowser, QMessageBox, QSplitter, QDialog, QDialogButtonBox,
-    QMenu, QProgressBar
+    QMenu, QProgressBar, QHeaderView
 )
-from qgis.PyQt.QtGui import QFont, QColor, QPixmap
+from qgis.PyQt.QtGui import QFont, QColor, QPalette
 from qgis.core import (
     QgsSettings, QgsRasterLayer, QgsVectorLayer, QgsProject, QgsDataSourceUri,
     QgsCoordinateReferenceSystem, QgsNetworkAccessManager, QgsApplication, QgsTask
@@ -73,44 +74,33 @@ class AboutDialog(QDialog):
         self.setMinimumWidth(400)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(30, 30, 30, 20)
-        layout.setSpacing(15)
-
-        logo_label = QLabel()
-        logo_path = os.path.join(plugin_dir, "logo_dev.png") if plugin_dir else ""
-        pixmap = QPixmap(logo_path)
-        if not pixmap.isNull():
-            logo_label.setPixmap(pixmap.scaledToHeight(80, Qt.TransformationMode.SmoothTransformation))
-            logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(logo_label)
-
+        layout.setContentsMargins(24, 24, 24, 16)
+        layout.setSpacing(12)
         title = QLabel("<h2>PeruSpatial Hub</h2>")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
-
-        subtitle = QLabel(
-            "Desarrollado por <b>Jordan Zavaleta (GisGeo Dev)</b><br>"
-            "<a href='mailto:jordanzav@gisgeo.dev' style='text-decoration: none; color: #1976d2;'>jordanzav@gisgeo.dev</a>"
+        version = QLabel(f"Versión {_read_plugin_version()} · Complemento para QGIS")
+        layout.addWidget(version)
+        description = QLabel("Acceso a servicios geoespaciales de instituciones públicas del Perú.")
+        description.setWordWrap(True)
+        layout.addWidget(description)
+        layout.addSpacing(8)
+        author = QLabel(
+            "<b>Jordan Zavaleta</b> · GisGeo Dev<br>"
+            "<a href='mailto:jordanzav@gisgeo.dev'>jordanzav@gisgeo.dev</a>"
         )
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setOpenExternalLinks(True)
-        layout.addWidget(subtitle)
-
+        author.setOpenExternalLinks(True)
+        layout.addWidget(author)
         links = QLabel(
-            "<a href='https://gisgeo.dev' style='text-decoration: none; color: #1976d2;'>Sitio Web: gisgeo.dev</a><br><br>"
-            "<a href='https://www.linkedin.com/in/jordan-zav/' style='text-decoration: none; color: #1976d2;'>LinkedIn Profile</a>"
+            "<a href='https://gisgeo.dev'>Sitio web</a> · "
+            "<a href='https://www.linkedin.com/in/jordan-zav/'>LinkedIn</a> · "
+            "<a href='https://github.com/jordan-zav/Peruspatial-Hub'>Código fuente</a>"
         )
-        links.setAlignment(Qt.AlignmentFlag.AlignCenter)
         links.setOpenExternalLinks(True)
         layout.addWidget(links)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
-        buttons.accepted.connect(self.accept)
+        layout.addSpacing(12)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
-
-        self.setStyleSheet(
-            "QDialog { background-color: white; } QLabel { color: #333; }"
-        )
 
 
 class ServiceStatusDialog(QDialog):
@@ -118,42 +108,35 @@ class ServiceStatusDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Estado de servicios investigados")
+        self.setWindowTitle("Fuentes del catálogo")
         self.setMinimumSize(560, 430)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 12)
         layout.setSpacing(10)
 
-        title = QLabel("<h2>Servicios investigados</h2>")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title = QLabel("<h2>Disponibilidad y acceso</h2>")
         layout.addWidget(title)
 
         details = QTextBrowser()
         details.setOpenExternalLinks(True)
+        details.document().setDefaultStyleSheet(
+            "h3 { margin-top: 16px; margin-bottom: 4px; } p { margin-top: 4px; }"
+        )
         details.setHtml(
-            "<p>PeruSpatial Hub revisó estas instituciones. Si alguna no aparece como "
-            "conexión disponible, no significa que haya sido omitida sin investigación.</p>"
-            "<ul>"
-            "<li><b>OEFA:</b> el directorio público PIFA está operativo y ya se encuentra "
-            "integrado en el catálogo.</li>"
-            "<li><b>SUNARP:</b> el Visor BGR solicita DNI, fecha de emisión y captcha. "
-            "No se encontró un directorio REST anónimo verificado para integrarlo como "
-            "las demás conexiones.</li>"
-            "<li><b>CENEPRED:</b> SIGRID dispone de acceso de usuario, pero actualmente "
-            "el ArcGIS Web Adaptor público informa que no puede comunicarse con su "
-            "servidor interno. Iniciar sesión no corrige esa falla del servicio REST.</li>"
-            "<li><b>COFOPRI:</b> el servidor conocido presenta problemas de validación "
-            "del certificado TLS y la ruta REST consultada responde HTTP 404. Por "
-            "seguridad, el plugin no desactiva la validación de certificados.</li>"
-            "</ul>"
-            "<p><b>Acceso privado disponible:</b> cualquier servicio HTTPS del catálogo "
-            "puede vincularse a una configuración de autenticación de QGIS. Esto permite "
-            "usar usuario y contraseña, tokens, OAuth2 o certificados cuando el servidor "
-            "los admita. Las credenciales permanecen cifradas en el perfil local de QGIS; "
-            "el plugin sólo guarda el identificador de la configuración.</p>"
-            "<p><i>La autenticación no puede reparar servidores caídos ni eludir captchas "
-            "o restricciones del proveedor.</i></p>"
+            "<p>Notas de la revisión incluida en el catálogo. Para consultar la "
+            "disponibilidad actual, use <b>Herramientas → Verificar servidores</b>.</p>"
+            "<h3>OEFA</h3><p>El directorio público PIFA está integrado en el catálogo.</p>"
+            "<h3>SUNARP</h3><p>El visor BGR requiere identificación y captcha. "
+            "No se identificó un directorio REST de acceso anónimo.</p>"
+            "<h3>CENEPRED</h3><p>En la revisión, el acceso público de SIGRID no pudo "
+            "comunicarse con su servidor interno.</p>"
+            "<h3>COFOPRI</h3><p>La revisión encontró errores de certificado TLS y "
+            "una ruta REST con respuesta HTTP 404.</p>"
+            "<h3>Servicios con acceso privado</h3>"
+            "<p>Seleccione un servicio HTTPS y use <b>Herramientas → Configurar acceso "
+            "privado</b>. Las credenciales se administran en QGIS. La autenticación "
+            "no resuelve fallas de disponibilidad ni permite omitir captchas.</p>"
         )
         layout.addWidget(details)
 
@@ -174,20 +157,18 @@ class ServiceAccessDialog(QDialog):
         layout.setContentsMargins(18, 18, 18, 12)
         layout.setSpacing(10)
 
-        title = QLabel(f"<h3>{service_name}</h3>")
+        title = QLabel(f"<h3>{escape(service_name)}</h3>")
         title.setWordWrap(True)
         layout.addWidget(title)
 
         explanation = QLabel(
-            "Seleccione una configuración existente o cree una nueva. QGIS guardará "
-            "el usuario, la contraseña, el token o el certificado en la base de "
-            "autenticación cifrada del perfil de esta PC. PeruSpatial Hub sólo "
-            "conservará el identificador de esa configuración."
+            "Seleccione o cree una configuración de autenticación de QGIS para este servicio. "
+            "Las credenciales se guardan cifradas en su perfil local."
         )
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
 
-        resource = QLabel(f"<b>Ámbito:</b> {service_url}")
+        resource = QLabel(f"<b>Servicio</b><br>{escape(service_url)}")
         resource.setWordWrap(True)
         resource.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(resource)
@@ -202,7 +183,6 @@ class ServiceAccessDialog(QDialog):
             "credenciales desde el mismo selector de QGIS."
         )
         note.setWordWrap(True)
-        note.setStyleSheet("color: #666;")
         layout.addWidget(note)
 
         buttons = QDialogButtonBox(
@@ -237,12 +217,14 @@ class PeruSpatialHubPanel(QDockWidget):
 
         # Set main widget
         self.main_widget = QWidget()
+        self.main_widget.setObjectName("peruspatialPanel")
+        self.init_panel_style()
         self.setWidget(self.main_widget)
         
         # Main layout
         self.main_layout = QVBoxLayout(self.main_widget)
-        self.main_layout.setContentsMargins(8, 8, 8, 8)
-        self.main_layout.setSpacing(8)
+        self.main_layout.setContentsMargins(12, 12, 12, 12)
+        self.main_layout.setSpacing(12)
 
         # 1. Header Widget (Logo and Title)
         self.init_header()
@@ -288,7 +270,11 @@ class PeruSpatialHubPanel(QDockWidget):
         self.splitter.addWidget(self.bottom_container)
 
         # Set default splitter sizes (give tree more space than metadata)
-        self.splitter.setSizes([350, 250])
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(8)
+        self.splitter.setStretchFactor(0, 3)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([440, 210])
 
         catalog_path = os.path.join(self.plugin_dir or "", "catalog", "catalog.json")
         try:
@@ -324,189 +310,155 @@ class PeruSpatialHubPanel(QDockWidget):
         # Initial state
         self.update_buttons_state(None)
 
+    def init_panel_style(self):
+        """Keep QGIS palette and font settings, with one restrained action color."""
+        dark = self.palette().color(QPalette.ColorRole.Window).lightness() < 128
+        accent = "#78b9ab" if dark else "#24695f"
+        foreground = "#172b26" if dark else "#ffffff"
+        self.main_widget.setStyleSheet(f"""
+            QWidget#peruspatialPanel QLineEdit,
+            QWidget#peruspatialPanel QComboBox {{
+                min-height: 26px; padding: 3px 6px;
+            }}
+            QWidget#peruspatialPanel QPushButton,
+            QWidget#peruspatialPanel QToolButton {{
+                min-height: 26px; padding: 3px 10px;
+            }}
+            QPushButton#addLayer:enabled {{
+                background: {accent}; color: {foreground};
+                border: 1px solid {accent}; border-radius: 3px;
+                font-weight: bold;
+            }}
+            QPushButton#addLayer:hover:enabled {{ border: 1px solid palette(text); }}
+            QPushButton#addLayer:pressed {{ background: palette(highlight); }}
+            QPushButton#addLayer:focus {{ border: 2px solid palette(text); }}
+            QTreeWidget {{ border: 1px solid palette(mid); }}
+            QTreeWidget::item {{ padding: 5px 2px; }}
+            QTextBrowser {{ border: 1px solid palette(mid); padding: 8px; }}
+            QLabel#crsNotice {{
+                border-left: 3px solid {accent}; padding: 6px 8px;
+            }}
+        """)
+
     def init_header(self):
-        """Creates the header title, logo and description."""
-        header_widget = QWidget()
-        header_layout = QVBoxLayout(header_widget)
-        header_layout.setContentsMargins(2, 2, 2, 2)
-        header_layout.setSpacing(4)
-
-        # Logo Centered (GisGeo)
-        logo_label = QLabel()
-        logo_path = os.path.join(self.plugin_dir, "logo.png") if self.plugin_dir else ""
-        pixmap = QPixmap(logo_path)
-        if not pixmap.isNull():
-            logo_label.setPixmap(pixmap.scaledToHeight(60, Qt.TransformationMode.SmoothTransformation))
-            logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            header_layout.addWidget(logo_label)
-
-        title_label = QLabel("PeruSpatial Hub")
-        title_font = QFont("Segoe UI", 12, QFont.Weight.Bold)
-        title_label.setFont(title_font)
-        title_label.setStyleSheet("color: #0b5394;")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        sub_label = QLabel("Catálogo de Geoportales y Servidores del Estado Peruano")
-        sub_font = QFont("Segoe UI", 8, QFont.Style.StyleItalic)
-        sub_label.setFont(sub_font)
-        sub_label.setStyleSheet("color: #555;")
-        sub_label.setWordWrap(True)
-        sub_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        header_layout.addWidget(title_label)
-        header_layout.addWidget(sub_label)
-        self.main_layout.addWidget(header_widget)
+        """A compact, left-aligned identity above the working catalog."""
+        header = QWidget()
+        layout = QVBoxLayout(header)
+        layout.setContentsMargins(0, 0, 0, 4)
+        layout.setSpacing(3)
+        title = QLabel("PeruSpatial Hub")
+        font = QFont(self.font())
+        font.setPointSizeF(font.pointSizeF() + 3)
+        font.setBold(True)
+        title.setFont(font)
+        layout.addWidget(title)
+        subtitle = QLabel("Datos geoespaciales del Perú")
+        subtitle.setWordWrap(True)
+        layout.addWidget(subtitle)
+        self.main_layout.addWidget(header)
 
     def init_search_filters(self):
-        """Creates search box and category filter combo."""
+        """Give search its own row so narrow docks remain usable."""
         self.search_filter_widget = QWidget()
-        layout = QHBoxLayout(self.search_filter_widget)
+        layout = QVBoxLayout(self.search_filter_widget)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-
+        layout.setSpacing(8)
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Buscar servicio o capa (ej. sismos, catastro)...")
+        self.search_input.setPlaceholderText("Buscar capas, servicios o instituciones…")
+        self.search_input.setAccessibleName("Buscar en el catálogo")
         self.search_input.setClearButtonEnabled(True)
+        layout.addWidget(self.search_input)
 
+        filters = QHBoxLayout()
+        filters.setSpacing(8)
         self.category_combo = QComboBox()
         self.category_combo.addItem("Todas las Categorías")
         self.category_combo.addItems(CATALOG_CATEGORIES)
-        self.category_combo.setFixedWidth(130)
-
+        self.category_combo.setAccessibleName("Filtrar por categoría")
+        self.category_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.category_combo.setMinimumContentsLength(12)
+        filters.addWidget(self.category_combo, 1)
         self.btn_service_status = QToolButton()
-        self.btn_service_status.setText("ⓘ")
-        self.btn_service_status.setToolTip(
-            "Ver el estado de instituciones y servicios investigados"
-        )
-        self.btn_service_status.setAccessibleName("Información de servicios investigados")
-        self.btn_service_status.setFixedSize(30, 30)
+        self.btn_service_status.setText("Fuentes")
+        self.btn_service_status.setToolTip("Disponibilidad y acceso a las fuentes del catálogo")
         self.btn_service_status.clicked.connect(self.show_service_status_dialog)
-
-        layout.addWidget(self.search_input)
-        layout.addWidget(self.category_combo)
-        layout.addWidget(self.btn_service_status)
+        filters.addWidget(self.btn_service_status)
+        layout.addLayout(filters)
 
     def init_tree_widget(self):
-        """Creates tree widget for service categories and list."""
+        """A readable catalog with a flexible name column."""
         self.tree_widget = QTreeWidget()
-        self.tree_widget.setHeaderLabels(["Servicio / Institución", "Tipo"])
-        self.tree_widget.setHeaderHidden(False)
-        self.tree_widget.setColumnWidth(0, 220)
+        self.tree_widget.setHeaderLabels(["Catálogo / Institución", "Tipo"])
+        self.tree_widget.header().setStretchLastSection(False)
+        self.tree_widget.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.tree_widget.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         self.tree_widget.setColumnWidth(1, 100)
-        self.tree_widget.setAlternatingRowColors(True)
+        self.tree_widget.setIndentation(14)
+        self.tree_widget.setUniformRowHeights(True)
+        self.tree_widget.setAlternatingRowColors(False)
+        self.tree_widget.setAccessibleName("Catálogo de servicios y capas")
         self.tree_widget.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
         self.tree_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree_widget.customContextMenuRequested.connect(self.show_context_menu)
-        self.tree_widget.setStyleSheet("""
-            QTreeWidget {
-                border: 1px solid #dcdcdc;
-                background-color: #ffffff;
-            }
-            QTreeWidget::item {
-                padding: 4px;
-            }
-        """)
 
     def init_metadata_panel(self):
-        """Creates the text panel to show metadata details."""
         self.metadata_panel = QTextBrowser()
         self.metadata_panel.setOpenExternalLinks(True)
-        self.metadata_panel.setPlaceholderText("Seleccione un servicio para ver los detalles, URLs y metadatos.")
-        self.metadata_panel.setStyleSheet("""
-            QTextBrowser {
-                border: 1px solid #dcdcdc;
-                background-color: #f9f9f9;
-                font-family: 'Segoe UI', Arial;
-                font-size: 11px;
-            }
-        """)
-
-    def init_crs_warning_banner(self):
-        """Creates a dedicated banner warning about CRS and Datum accuracy."""
-        self.crs_banner = QLabel()
-        self.crs_banner.setWordWrap(True)
-        self.crs_banner.setStyleSheet("""
-            QLabel {
-                background-color: #fff2cc;
-                border: 1px solid #ffe599;
-                color: #7f6000;
-                padding: 6px;
-                border-radius: 4px;
-                font-family: 'Segoe UI';
-                font-size: 10.5px;
-            }
-        """)
-        # Default text explaining general rules for Peru spatial
-        self.crs_banner.setText(
-            "<b>💡 Nota de Precisión (Geofísica/Arqueología):</b><br>"
-            "Los levantamientos de precisión requieren el datum correcto. Asegúrese de "
-            "configurar su proyecto QGIS en el huso UTM adecuado (ej. <b>WGS84 / UTM 18S</b> - EPSG:32718). "
-            "Si usa capas históricas en <b>PSAD56</b>, aplique la transformación a WGS84 para evitar desfases."
+        self.metadata_panel.setMinimumHeight(90)
+        self.metadata_panel.setAccessibleName("Detalles de la selección")
+        self.metadata_panel.document().setDefaultStyleSheet(
+            "h3 { font-size: medium; margin-top: 0; margin-bottom: 8px; }"
+            "p { margin-top: 4px; margin-bottom: 6px; }"
         )
 
+    def init_crs_warning_banner(self):
+        self.crs_banner = QLabel()
+        self.crs_banner.setObjectName("crsNotice")
+        self.crs_banner.setWordWrap(True)
+        self.crs_banner.setText(
+            "<b>Revisar datum.</b> Esta fuente puede incluir capas en PSAD56. "
+            "Compruebe el CRS de la capa y su transformación al CRS del proyecto."
+        )
+        self.crs_banner.setVisible(False)
+
     def init_action_buttons(self):
-        """Creates action buttons grouped at the bottom."""
+        """Expose the main action and keep utilities in a labeled menu."""
         self.button_grid_widget = QWidget()
         grid = QGridLayout(self.button_grid_widget)
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(4)
+        grid.setSpacing(8)
+        self.btn_add_layer = QPushButton("Añadir al mapa")
+        self.btn_add_layer.setObjectName("addLayer")
+        self.btn_add_layer.clicked.connect(self.add_selected_layer)
+        self.btn_register_browser = QPushButton("Registrar conexión")
+        self.btn_register_browser.setToolTip("Guardar esta conexión en el navegador de QGIS")
+        self.btn_register_browser.clicked.connect(self.register_selected_connection)
 
-        self.btn_add_layer = QPushButton("Añadir al Mapa")
-        self.btn_add_layer.setStyleSheet("background-color: #4caf50; color: white; font-weight: bold; padding: 6px;")
-        
-        self.btn_register_browser = QPushButton("Registrar Conexión")
-        self.btn_register_browser.setStyleSheet("padding: 6px;")
-
-        self.btn_register_all = QPushButton("Registrar Todo")
-        self.btn_register_all.setStyleSheet("background-color: #0b5394; color: white; padding: 6px;")
-        
-        self.btn_copy_url = QPushButton("Copiar URL")
-        self.btn_copy_url.setStyleSheet("padding: 6px;")
-
-        self.btn_open_browser = QPushButton("Ver en Web")
-        self.btn_open_browser.setStyleSheet("padding: 6px;")
-
-        self.btn_about = QPushButton("Acerca de")
-        self.btn_about.setStyleSheet("padding: 6px;")
-
-        self.btn_service_access = QPushButton("Configurar acceso privado")
-        self.btn_service_access.setStyleSheet(
-            "background-color: #674ea7; color: white; font-weight: bold; padding: 6px;"
-        )
-
-        self.btn_health_check = QPushButton("Verificar Servidores")
-        self.btn_health_check.setStyleSheet(
-            "background-color: #e65100; color: white; font-weight: bold; padding: 6px;"
-        )
-        self.btn_health_check.setToolTip("Verificar la conectividad de todos los servidores del catálogo")
+        self.tools_button = QToolButton()
+        self.tools_button.setText("Herramientas")
+        self.tools_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(self.tools_button)
+        self.btn_copy_url = menu.addAction("Copiar URL", self.copy_selected_url)
+        self.btn_open_browser = menu.addAction("Abrir en navegador", self.open_selected_web)
+        self.btn_service_access = menu.addAction("Configurar acceso privado", self.configure_selected_service_access)
+        menu.addSeparator()
+        self.btn_register_all = menu.addAction("Registrar todas las conexiones", self.register_all_connections)
+        self.btn_health_check = menu.addAction("Verificar servidores", self.check_all_servers_health)
+        menu.addSeparator()
+        self.btn_about = menu.addAction("Acerca de PeruSpatial Hub", self.show_about_dialog)
+        self.tools_button.setMenu(menu)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setTextVisible(True)
-        self.progress_bar.setFormat("Cargando...")
-        self.progress_bar.setRange(0, 0)  # indeterminate
+        self.progress_bar.setFormat("Cargando…")
+        self.progress_bar.setRange(0, 0)
         self.progress_bar.setFixedHeight(18)
         self.progress_bar.setVisible(False)
-
-        # Grid configuration
-        grid.addWidget(self.btn_add_layer, 0, 0)
-        grid.addWidget(self.btn_register_browser, 0, 1)
-        grid.addWidget(self.btn_copy_url, 1, 0)
-        grid.addWidget(self.btn_open_browser, 1, 1)
-        grid.addWidget(self.btn_register_all, 2, 0)
-        grid.addWidget(self.btn_about, 2, 1)
-        grid.addWidget(self.btn_health_check, 3, 0)
-        grid.addWidget(self.btn_service_access, 3, 1)
-        grid.addWidget(self.progress_bar, 4, 0, 1, 2)
-
-        # Event handlers
-        self.btn_add_layer.clicked.connect(self.add_selected_layer)
-        self.btn_register_browser.clicked.connect(self.register_selected_connection)
-        self.btn_register_all.clicked.connect(self.register_all_connections)
-        self.btn_copy_url.clicked.connect(self.copy_selected_url)
-        self.btn_open_browser.clicked.connect(self.open_selected_web)
-        self.btn_about.clicked.connect(self.show_about_dialog)
-        self.btn_service_access.clicked.connect(self.configure_selected_service_access)
-        self.btn_health_check.clicked.connect(self.check_all_servers_health)
+        grid.addWidget(self.btn_add_layer, 0, 0, 1, 2)
+        grid.addWidget(self.btn_register_browser, 1, 0)
+        grid.addWidget(self.tools_button, 1, 1)
+        grid.setColumnStretch(0, 1)
+        grid.addWidget(self.progress_bar, 2, 0, 1, 2)
 
     def show_about_dialog(self):
         """Opens the About dialog with developer information and links."""
@@ -538,14 +490,14 @@ class PeruSpatialHubPanel(QDockWidget):
         ntype = data.get("type", "")
 
         if ntype in self.CONTAINER_TYPES:
-            menu.addAction("📂 Expandir / Colapsar", lambda: item.setExpanded(not item.isExpanded()))
+            menu.addAction("Expandir / contraer", lambda: item.setExpanded(not item.isExpanded()))
             if data.get("is_loaded", False):
-                menu.addAction("🔄 Recargar servidor", lambda: self.refresh_node(item))
+                menu.addAction("Actualizar contenido", lambda: self.refresh_node(item))
             menu.addSeparator()
             if ntype != "arcgis_group":
-                menu.addAction("📌 Registrar Conexión", self.register_selected_connection)
-            menu.addAction("📋 Copiar URL", self.copy_selected_url)
-            menu.addAction("🌐 Ver en Web", self.open_selected_web)
+                menu.addAction("Registrar conexión", self.register_selected_connection)
+            menu.addAction("Copiar URL", self.copy_selected_url)
+            menu.addAction("Abrir en navegador", self.open_selected_web)
         elif ntype in self.LAYER_TYPES:
             selected = self.tree_widget.selectedItems()
             if len(selected) > 1:
@@ -553,21 +505,21 @@ class PeruSpatialHubPanel(QDockWidget):
                     1 for it in selected
                     if (it.data(0, Qt.ItemDataRole.UserRole) or {}).get("type") in self.LAYER_TYPES
                 )
-                menu.addAction(f"➕ Añadir {layer_count} capas al Mapa", self.add_selected_layer)
+                menu.addAction(f"Añadir {layer_count} capas al Mapa", self.add_selected_layer)
             else:
-                menu.addAction("➕ Añadir al Mapa", self.add_selected_layer)
+                menu.addAction("Añadir al mapa", self.add_selected_layer)
             menu.addSeparator()
-            menu.addAction("📋 Copiar URL", self.copy_selected_url)
-            menu.addAction("🌐 Ver en Web", self.open_selected_web)
+            menu.addAction("Copiar URL", self.copy_selected_url)
+            menu.addAction("Abrir en navegador", self.open_selected_web)
             menu.addSeparator()
             if self._is_favorite(data):
-                menu.addAction("💔 Quitar de Favoritos", lambda: self.remove_from_favorites(item))
+                menu.addAction("Quitar de favoritos", lambda: self.remove_from_favorites(item))
             else:
-                menu.addAction("⭐ Añadir a Favoritos", lambda: self.add_to_favorites(item))
+                menu.addAction("Añadir a favoritos", lambda: self.add_to_favorites(item))
 
         if self.normalize_auth_scope(data.get("service_url") or data.get("url", "")):
             menu.addSeparator()
-            menu.addAction("🔐 Configurar acceso privado", self.configure_selected_service_access)
+            menu.addAction("Configurar acceso privado", self.configure_selected_service_access)
 
         if menu.actions():
             menu.exec(self.tree_widget.viewport().mapToGlobal(position))
@@ -674,7 +626,7 @@ class PeruSpatialHubPanel(QDockWidget):
         favorites = self.load_favorites()
         if not favorites:
             placeholder = QTreeWidgetItem(self.favorites_root)
-            placeholder.setText(0, "Sin favoritos. Use clic derecho → ⭐ para agregar.")
+            placeholder.setText(0, "Sin favoritos. Use el menú contextual de una capa.")
             placeholder.setForeground(0, QColor("#888"))
             return
         for fav in favorites:
@@ -776,26 +728,24 @@ class PeruSpatialHubPanel(QDockWidget):
 
         html_rows = []
         for server, ok, error in results:
-            color = "#274e13" if ok else "#a20000"
-            icon = "✅" if ok else "❌"
-            name = f"{server['institution']} - {server['name']}"
-            detail = "" if ok else f"<br><small style='color:#666'>{error[:120]}</small>"
-            html_rows.append(f"<tr><td>{icon}</td><td style='color:{color}'>{name}{detail}</td></tr>")
+            icon = "En línea" if ok else "Sin respuesta"
+            name = escape(f"{server['institution']} — {server['name']}")
+            detail = "" if ok else f"<br><small>{escape(str(error)[:200])}</small>"
+            html_rows.append(f"<tr><td valign='top'>{icon}</td><td>{name}{detail}</td></tr>")
 
         dialog = QDialog(self)
-        dialog.setWindowTitle("Estado de Servidores")
+        dialog.setWindowTitle("Estado de servidores")
         dialog.setMinimumSize(560, 400)
         layout = QVBoxLayout(dialog)
 
         summary = QLabel(
             f"<h3>Verificación completada</h3>"
-            f"<p><b style='color:#274e13'>{online} en línea</b> · "
-            f"<b style='color:#a20000'>{offline} sin respuesta</b></p>"
+            f"<p>{online} en línea · {offline} sin respuesta</p>"
         )
         layout.addWidget(summary)
 
         browser = QTextBrowser()
-        browser.setHtml(f"<table cellpadding='4'>{''.join(html_rows)}</table>")
+        browser.setHtml(f"<table cellspacing='0' cellpadding='8'><tr><th align='left'>Estado</th><th align='left'>Servicio</th></tr>{''.join(html_rows)}</table>")
         layout.addWidget(browser)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
@@ -996,24 +946,27 @@ class PeruSpatialHubPanel(QDockWidget):
         return None
 
 
+    def section_font(self):
+        font = QFont(self.font())
+        font.setBold(True)
+        return font
+
     def populate_tree(self):
         """Fills the TreeWidget grouping services by institution and adding live servers."""
         self.tree_widget.clear()
 
         self.search_results_root = QTreeWidgetItem(self.tree_widget)
-        self.search_results_root.setText(0, "🔎 Resultados del inventario local")
-        self.search_results_root.setText(1, "Sin conexión")
-        self.search_results_root.setFont(0, QFont("Segoe UI", 10, QFont.Weight.Bold))
-        self.search_results_root.setForeground(0, QColor("#38761d"))
+        self.search_results_root.setText(0, "Resultados de búsqueda")
+        self.search_results_root.setText(1, "Local")
+        self.search_results_root.setFont(0, self.section_font())
         self.search_results_root.setData(0, Qt.ItemDataRole.UserRole, None)
         self.search_results_root.setHidden(True)
         
         # The old fixed layer URLs contained many retired services. Start from
         # live repository roots and discover their current services/layers.
         explorer_root = QTreeWidgetItem(self.tree_widget)
-        explorer_root.setText(0, "🌐 Servidores en Vivo (Explorador Completo)")
-        explorer_root.setFont(0, QFont("Segoe UI", 10, QFont.Weight.Bold))
-        explorer_root.setForeground(0, QColor("#0b5394"))
+        explorer_root.setText(0, "Servidores disponibles")
+        explorer_root.setFont(0, self.section_font())
         explorer_root.setData(0, Qt.ItemDataRole.UserRole, None)
 
 
@@ -1031,7 +984,7 @@ class PeruSpatialHubPanel(QDockWidget):
             server_item = QTreeWidgetItem(explorer_root)
             server_item.setText(0, f"{s['institution']} - {s['name']}")
             is_arcgis = s["stype"] == "arcgis_rest"
-            server_item.setText(1, "Servidor ArcGIS REST" if is_arcgis else "Servidor WMS")
+            server_item.setText(1, "ArcGIS REST" if is_arcgis else "WMS")
             server_item.setData(0, Qt.ItemDataRole.UserRole, {
                 "type": "server" if is_arcgis else "ogc_service",
                 "stype": s["stype"],
@@ -1048,15 +1001,15 @@ class PeruSpatialHubPanel(QDockWidget):
 
         # Favorites section
         self.favorites_root = QTreeWidgetItem(self.tree_widget)
-        self.favorites_root.setText(0, "⭐ Favoritos")
-        self.favorites_root.setFont(0, QFont("Segoe UI", 10, QFont.Weight.Bold))
-        self.favorites_root.setForeground(0, QColor("#bf8f00"))
+        self.favorites_root.setText(0, "Favoritos")
+        self.favorites_root.setFont(0, self.section_font())
         self.favorites_root.setData(0, Qt.ItemDataRole.UserRole, None)
         self.populate_favorites_tree()
 
-        # Start with every repository and folder closed. Remote catalogs are
+        # Show institutions immediately; remote folders remain closed and are
         # loaded only when the user explicitly expands one of them.
         self.tree_widget.collapseAll()
+        explorer_root.setExpanded(True)
         if self.favorites_root.childCount():
             self.favorites_root.setExpanded(True)
 
@@ -1145,9 +1098,14 @@ class PeruSpatialHubPanel(QDockWidget):
             limit=200,
         )
         self.search_results_root.setText(
-            0, f"🔎 Inventario local: {len(results)} de {total} resultado(s)"
+            0, f"Resultados: {len(results)} de {total}"
         )
         self.search_results_root.setHidden(False)
+        if not results:
+            empty = QTreeWidgetItem(self.search_results_root)
+            empty.setText(0, "Sin coincidencias. Pruebe otro término o categoría.")
+            empty.setToolTip(0, empty.text(0))
+            empty.setFlags(Qt.ItemFlag.ItemIsEnabled)
 
         for entry in results:
             data = {
@@ -1325,7 +1283,7 @@ class PeruSpatialHubPanel(QDockWidget):
                         f_item = QTreeWidgetItem(item)
                         f_item.setText(0, folder_name)
                         f_item.setText(1, "Carpeta REST")
-                        f_item.setFont(0, QFont("Segoe UI", 9, QFont.Weight.Bold))
+                        f_item.setFont(0, self.section_font())
                         f_item.setData(0, Qt.ItemDataRole.UserRole, {
                             "type": "folder",
                             "stype": "arcgis_rest",
@@ -1534,7 +1492,7 @@ class PeruSpatialHubPanel(QDockWidget):
                     group_item = QTreeWidgetItem(parent_item)
                     group_item.setText(0, title)
                     group_item.setText(1, "Grupo WMS")
-                    group_item.setFont(0, QFont("Segoe UI", 9, QFont.Weight.Bold))
+                    group_item.setFont(0, self.section_font())
                     group_item.setData(0, Qt.ItemDataRole.UserRole, {
                         "type": "wms_group",
                         "stype": "wms",
@@ -1593,7 +1551,7 @@ class PeruSpatialHubPanel(QDockWidget):
 
             if is_group:
                 tree_item.setText(1, "Grupo REST")
-                tree_item.setFont(0, QFont("Segoe UI", 9, QFont.Weight.Bold))
+                tree_item.setFont(0, self.section_font())
                 tree_item.setData(0, Qt.ItemDataRole.UserRole, {
                     "type": "arcgis_group",
                     "stype": service_data["stype"],
@@ -1664,27 +1622,14 @@ class PeruSpatialHubPanel(QDockWidget):
         """Enables/disables buttons and sets metadata description based on selection."""
         if s is None:
             self.metadata_panel.setHtml(
-                "<p style='color: #666;'>Seleccione un servicio del catálogo superior para ver su descripción "
-                "y realizar operaciones.</p>"
+                "<h3>Explore el catálogo</h3>"
+                "<p>Busque una capa o expanda una institución para consultar sus servicios.</p>"
+                "<p>Los detalles de su selección aparecerán aquí.</p>"
             )
-            self.crs_banner.setStyleSheet("""
-                QLabel {
-                    background-color: #fff2cc;
-                    border: 1px solid #ffe599;
-                    color: #7f6000;
-                    padding: 6px;
-                    border-radius: 4px;
-                    font-size: 10.5px;
-                }
-            """)
-            self.crs_banner.setText(
-                "<b>💡 Nota de Precisión (Geofísica/Arqueología):</b><br>"
-                "Los levantamientos de precisión requieren el datum correcto. Asegúrese de "
-                "configurar su proyecto QGIS en el huso UTM adecuado (ej. <b>WGS84 / UTM 18S</b> - EPSG:32718). "
-                "Si usa capas históricas en <b>PSAD56</b>, aplique la transformación a WGS84 para evitar desfases."
-            )
+            self.crs_banner.setVisible(False)
+            self.metadata_panel.setToolTip("")
             self.btn_add_layer.setEnabled(False)
-            self.btn_add_layer.setText("Añadir al Mapa")
+            self.btn_add_layer.setText("Añadir al mapa")
             self.btn_register_browser.setEnabled(False)
             self.btn_copy_url.setEnabled(False)
             self.btn_open_browser.setEnabled(False)
@@ -1698,12 +1643,12 @@ class PeruSpatialHubPanel(QDockWidget):
                     if (it.data(0, Qt.ItemDataRole.UserRole) or {}).get("type") in self.LAYER_TYPES
                 )
                 if layer_count > 1:
-                    self.btn_add_layer.setText(f"Añadir {layer_count} Capas")
+                    self.btn_add_layer.setText(f"Añadir {layer_count} capas")
                     self.btn_add_layer.setEnabled(True)
                 else:
-                    self.btn_add_layer.setText("Añadir al Mapa")
+                    self.btn_add_layer.setText("Añadir al mapa")
             else:
-                self.btn_add_layer.setText("Añadir al Mapa")
+                self.btn_add_layer.setText("Añadir al mapa")
             service_url = s.get("service_url") or s.get("url", "")
             has_auth = bool(self.auth_config_for_url(service_url))
             self.btn_service_access.setEnabled(bool(self.normalize_auth_scope(service_url)))
@@ -1711,94 +1656,37 @@ class PeruSpatialHubPanel(QDockWidget):
                 "Acceso privado configurado" if has_auth else "Configurar acceso privado"
             )
             ntype = s.get("type", "service")
-            crs_advisory = ""
-            if s.get("crs_warning", False):
-                crs_advisory = (
-                    "<div style='background-color: #f8cecc; border: 1px solid #b85450; color: #a20000; "
-                    "padding: 8px; border-radius: 4px; margin-top: 10px;'>"
-                    "<b>⚠️ ADVERTENCIA DE CRS / DATUM:</b><br>"
-                    "Este servicio contiene capas históricas o de arqueología que tradicionalmente operan en "
-                    "<b>PSAD56</b>. Al integrarlas en un proyecto <b>WGS84 / SIRGAS UTM</b>, asegúrese de aplicar "
-                    "la transformación de datum oficial de IGN/MINCUL para evitar desplazamientos de hasta 200 metros."
-                    "</div>"
-                )
-                self.crs_banner.setStyleSheet("""
-                    QLabel {
-                        background-color: #f8cecc;
-                        border: 1px solid #b85450;
-                        color: #a20000;
-                        padding: 6px;
-                        border-radius: 4px;
-                        font-size: 10.5px;
-                    }
-                """)
-                self.crs_banner.setText(
-                    "<b>⚠️ Advertencia de Precisión:</b> Capas arqueológicas/históricas en PSAD56 detectadas. "
-                    "¡No asuma WGS84 automáticamente! Transforme la capa para evitar desfases métricos en su retícula."
-                )
-            else:
-                self.crs_banner.setStyleSheet("""
-                    QLabel {
-                        background-color: #d5e8d4;
-                        border: 1px solid #82b366;
-                        color: #274e13;
-                        padding: 6px;
-                        border-radius: 4px;
-                        font-size: 10.5px;
-                    }
-                """)
-                self.crs_banner.setText(
-                    "<b>✅ Datum Moderno Compatible:</b> Este servicio opera en WGS84 / SIRGAS UTM de forma nativa. "
-                    "Se alinea perfectamente con mapas base de satélite y coordenadas de GPS modernas."
-                )
-
-            tags_html = "".join([f"<span style='background-color: #e1e1e1; padding: 2px 6px; margin-right: 4px; border-radius: 3px; font-size: 10px;'>{tag}</span>" for tag in s.get("tags", [])])
-
+            self.crs_banner.setVisible(bool(s.get("crs_warning", False)))
+            is_container = ntype in self.CONTAINER_TYPES
             if ntype == "ogc_service":
-                html = f"""
-                    <h3>{s['name']}</h3>
-                    <p><b>Institución:</b> {s['institution']}</p>
-                    <p><b>Categoría:</b> {s['category']}</p>
-                    <p><b>Tipo:</b> Servicio WMS oficial verificado</p>
-                    <p><b>Descripción:</b> Expanda este nodo para consultar el catálogo WMS y añadir cualquiera de sus capas directamente al mapa.</p>
-                    <p><b>URL del Servidor:</b><br><a href='{s['url']}'>{s['url']}</a></p>
-                """
-                self.metadata_panel.setHtml(html)
-                self.btn_add_layer.setEnabled(False)
-                self.btn_register_browser.setEnabled(True)
-                self.btn_copy_url.setEnabled(True)
-                self.btn_open_browser.setEnabled(True)
-            elif ntype in ["server", "folder", "arcgis_service", "arcgis_group", "wms_group"]:
-                html = f"""
-                    <h3>{s['name']}</h3>
-                    <p><b>Institución:</b> {s['institution']}</p>
-                    <p><b>Categoría:</b> {s['category']}</p>
-                    <p><b>Tipo:</b> Directorio de Servidor ({s['stype']})</p>
-                    <p><b>Descripción:</b> Directorio en vivo del servidor del estado peruano. Expanda este nodo en el catálogo superior para explorar dinámicamente todas sus subcarpetas y servicios publicados en tiempo real.</p>
-                    <p><b>URL del Servidor:</b><br><a href='{s['url']}'>{s['url']}</a></p>
-                """
-                self.metadata_panel.setHtml(html)
-                self.btn_add_layer.setEnabled(False)
-                self.btn_register_browser.setEnabled(ntype != "arcgis_group")
-                self.btn_copy_url.setEnabled(True)
-                self.btn_open_browser.setEnabled(True)
+                description = "Expanda el servicio para consultar sus capas WMS."
+                kind = "WMS"
+            elif is_container:
+                description = "Expanda el servicio para explorar sus carpetas y capas."
+                kind = self.friendly_type(s.get("stype", ntype))
             else:
-                friendly_t = self.friendly_type(s['stype'])
-                html = f"""
-                    <h3>{s['name']}</h3>
-                    <p><b>Institución:</b> {s['institution']}</p>
-                    <p><b>Categoría:</b> {s['category']}</p>
-                    <p><b>Tipo de Conexión:</b> {friendly_t}</p>
-                    <p><b>Descripción:</b> {s.get('description', '')}</p>
-                    <p><b>URL del Servicio:</b><br><a href='{s['url']}'>{s['url']}</a></p>
-                    <p><b>Etiquetas:</b> {tags_html}</p>
-                    {crs_advisory}
-                """
-                self.metadata_panel.setHtml(html)
-                self.btn_add_layer.setEnabled(True)
-                self.btn_register_browser.setEnabled(True)
-                self.btn_copy_url.setEnabled(True)
-                self.btn_open_browser.setEnabled(True)
+                description = s.get("description", "")
+                kind = self.friendly_type(s.get("stype", ntype))
+
+            name = escape(str(s.get("name", "Sin nombre")))
+            institution = escape(str(s.get("institution", "")))
+            category = escape(str(s.get("category", "")))
+            url = str(s.get("url", ""))
+            href = escape(url, quote=True)
+            host = escape(urllib.parse.urlsplit(url).netloc or url)
+            tags = ", ".join(str(tag) for tag in s.get("tags", []))
+            details = f"<p>{escape(str(description))}</p>" if description else ""
+            tags_html = f"<p>Etiquetas: {escape(tags)}</p>" if tags else ""
+            self.metadata_panel.setHtml(
+                f"<h3>{name}</h3><p>{institution}</p>"
+                f"<p>{category} · {escape(str(kind))}</p>"
+                f"{details}<p><a href='{href}'>{host}</a></p>{tags_html}"
+            )
+            self.metadata_panel.setToolTip(url)
+            self.btn_add_layer.setEnabled(not is_container)
+            self.btn_register_browser.setEnabled(ntype != "arcgis_group")
+            self.btn_copy_url.setEnabled(True)
+            self.btn_open_browser.setEnabled(True)
 
     @staticmethod
     def provider_error(layer):

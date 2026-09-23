@@ -71,17 +71,17 @@ PeruSpatial Hub se distribuye bajo la GNU General Public License v3.0. Puede usa
 
 ---
 
-## 🚀 Características Principales
+## Funciones
 
 1. **Catálogo Unificado**: Directorios GIS oficiales verificados y clasificados por institución y temática. Cada directorio descubre dinámicamente los servicios que la institución publica en ese momento.
-2. **Buscador Inteligente**: Filtra en tiempo real por palabras clave (ej: "sismos", "concesiones", "cuencas") y por categoría.
-3. **Carga de Capas REST**: Expande un servicio ArcGIS y haz doble clic en una subcapa para cargarla mediante el proveedor raster o vectorial correspondiente. Las conexiones WMS se registran en el panel Explorador de QGIS para seleccionar allí sus capas publicadas.
+2. **Búsqueda local**: Filtra el inventario por palabras clave (por ejemplo, "sismos", "concesiones" o "cuencas") y por categoría.
+3. **Carga de capas**: Expande un servicio ArcGIS REST o WMS y haz doble clic en una capa para añadirla al mapa mediante el proveedor de QGIS correspondiente.
 4. **Integración con el Explorador de QGIS**: Registra de forma individual o masiva todas las conexiones oficiales del catálogo directamente en el panel **Explorador** nativo de QGIS (bajo las categorías WMS/WMTS y ArcGIS REST).
-5. **Asistente de Precisión de CRS / Datum**: Panel de advertencia dinámico que le guiará para evitar errores al trabajar con datums mixtos (especialmente la transformación del datum histórico **PSAD56** al moderno **WGS84 / SIRGAS UTM**), garantizando la precisión métrica obligatoria en trabajos arqueológicos y geofísicos.
-6. **Estado Transparente de Fuentes**: El botón de información junto al buscador explica qué instituciones fueron investigadas, cuáles presentan fallas técnicas y cuáles requieren identificación. También documenta la exploración futura de accesos autenticados mediante mecanismos oficiales y seguros.
+5. **Avisos de datum**: Las fuentes marcadas con posibles capas en **PSAD56** muestran un recordatorio para revisar el CRS y la transformación al sistema del proyecto. El aviso no sustituye la validación espacial de los datos.
+6. **Fuentes y acceso**: El botón **Fuentes** muestra las notas de disponibilidad incluidas en el catálogo. En **Herramientas** puede verificar servidores y configurar el acceso privado mediante el administrador de autenticación de QGIS.
 ---
 
-## 📂 Servidores de información integrados y verificados
+## Servidores de información integrados y verificados
 
 La disponibilidad indicada fue comprobada el 15 de julio de 2026. Como son servicios externos administrados por cada institución, pueden cambiar o quedar temporalmente fuera de línea sin previo aviso.
 
@@ -106,7 +106,7 @@ El botón de información de la interfaz mantiene este diagnóstico visible dent
 
 ---
 
-## 🛠️ Instalación Manual
+## Instalación Manual
 
 Dado que el plugin está en desarrollo activo, puede instalarlo manualmente siguiendo estos pasos:
 
@@ -121,7 +121,7 @@ Dado que el plugin está en desarrollo activo, puede instalarlo manualmente sigu
 
 ---
 
-## ⚠️ Reglas Críticas de Precisión Espacial (Datum y CRS)
+## Reglas Críticas de Precisión Espacial (Datum y CRS)
 
 Si está trabajando con datos arqueológicos o geofísicos en el Perú, siga rigurosamente estas reglas:
 
@@ -163,3 +163,9 @@ atribución y condiciones de cada institución pública proveedora.
 
 Jordan Zavaleta — GisGeo Dev<br>
 [jordanzav@gisgeo.dev](mailto:jordanzav@gisgeo.dev) · [gisgeo.dev](https://gisgeo.dev)
+
+### Organización del panel
+
+El buscador y el filtro de categorías están sobre el catálogo. Al seleccionar un servicio o una capa, sus detalles aparecen debajo. **Añadir al mapa** es la acción principal; **Registrar conexión** guarda la selección en el navegador de QGIS. El menú **Herramientas** reúne copiar URL, abrir en el navegador, configurar acceso privado, registrar todas las conexiones, verificar servidores y consultar la información del complemento. **Fuentes** muestra la disponibilidad documentada de las instituciones.
+
+El panel utiliza la tipografía y la paleta de QGIS. El aviso de datum aparece al seleccionar una fuente marcada con posibles capas históricas en PSAD56; la ausencia del aviso no certifica el CRS de las capas.
