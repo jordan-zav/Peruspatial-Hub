@@ -1,171 +1,148 @@
+<p align="center"><strong>English</strong> · <a href="README.es.md">Español</a></p>
+
 <div align="center">
   <img src="logo_solo.png" alt="PeruSpatial Hub" width="112">
 
 # PeruSpatial Hub
 
-**Official Peruvian geospatial services, searchable and loadable inside QGIS**
+**Find official Peruvian geospatial services and load them directly in QGIS.**
 
-Explore ArcGIS REST and WMS directories from public institutions, search a
-bundled offline catalog and load native raster or vector services without
-copying opaque viewer URLs.
+Search a bundled offline catalogue, explore public ArcGIS REST and WMS
+directories, and load native raster or vector services without copying viewer URLs.
 
 [![Source 1.3.0](https://img.shields.io/badge/source-1.3.0-2563eb)](metadata.txt)
 [![Release](https://img.shields.io/github/v/release/jordan-zav/Peruspatial-Hub?color=7c3aed)](https://github.com/jordan-zav/Peruspatial-Hub/releases/latest)
-[![Tests](https://img.shields.io/github/actions/workflow/status/jordan-zav/Peruspatial-Hub/tests.yml?branch=main&label=tests)](https://github.com/jordan-zav/Peruspatial-Hub/actions/workflows/tests.yml)
 [![QGIS 3.34+](https://img.shields.io/badge/QGIS-3.34%2B-589632?logo=qgis&logoColor=white)](https://qgis.org/)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-0f766e)](LICENSE)
 
 </div>
 
-> [!IMPORTANT]
-> The catalog describes third-party public services whose availability,
-> schemas and access policies can change without a plugin update. Always retain
-> institutional attribution and verify datum/CRS before analysis.
+## Install and start
 
-PeruSpatial Hub centraliza el acceso a infraestructuras de datos espaciales de
-instituciones públicas del Perú para geología, geografía, teledetección,
-ambiente, hidrocarburos, hidrogeología, arqueología y gestión territorial.
+1. Download the ZIP from the [latest release](https://github.com/jordan-zav/Peruspatial-Hub/releases/latest).
+2. In QGIS 3.34+, open Plugins → Manage and Install Plugins → Install from ZIP.
+3. Enable PeruSpatial Hub and open Database → PeruSpatial Hub.
+4. Search a keyword or choose a category.
+5. Expand a service and double-click a layer, or use Add to map.
+6. Review institutional attribution and the layer's datum/CRS before analysis.
 
-La rama fuente declara la versión **1.3.0**; la insignia de Release muestra el
-último ZIP efectivamente publicado, que puede ir una versión detrás del código.
+The source declares 1.3.0. The release badge points to the actually published
+ZIP, which may lag behind the source version.
 
-Versión estable: 1.3.0
+## Fast local search
 
-## Flujo general
+The bundled inventory contains over 8,000 official services and layers. Typing
+filters this local file with a short debounce and at most 200 visible results.
+**Search does not send HTTP requests.** Live requests occur only when you
+explicitly expand a server/service or add a layer.
 
-```text
-Catálogo local de instituciones y servicios
-                    │
-                    ▼
- Búsqueda instantánea sin consultar internet
-                    │
-                    ▼
- Expansión explícita ──► consulta REST/WMS en vivo
-                    │
-                    ▼
- Subcapa raster/vector ──► proveedor nativo de QGIS
-                    │
-                    ▼
- Proyecto QGIS + atribución + control de datum/CRS
-```
+Unavailable or authentication-protected servers do not block local search.
+The inventory can be regenerated outside QGIS:
 
-## Búsqueda local instantánea
-
-El plugin incluye un inventario de más de 8,000 servicios y capas oficiales. Escribir en el buscador filtra únicamente ese archivo local, con un breve debounce y un máximo de 200 resultados visibles. **La búsqueda no realiza solicitudes HTTP** y no depende de la velocidad de los geoportales.
-
-Las consultas en vivo ocurren solamente cuando el usuario expande explícitamente un servidor o servicio, o cuando añade una capa al mapa. El inventario puede regenerarse fuera de QGIS con:
-
-```bash
+~~~powershell
 python scripts/build_catalog.py
-```
+~~~
 
-Los servidores con errores de certificado, autenticación o disponibilidad permanecen accesibles desde el explorador en vivo, pero nunca bloquean el cuadro de búsqueda.
+## Main features
 
-## Descarga
+| Feature | What you can do |
+| --- | --- |
+| Unified catalogue | Browse official directories by institution and topic |
+| Local search | Search keywords such as sismos, concesiones or cuencas |
+| Native layers | Add REST or WMS sublayers through the corresponding QGIS provider |
+| Browser integration | Register one or all connections in the native QGIS Browser |
+| Datum reminders | Review sources marked as possibly containing PSAD56 layers |
+| Sources | Read availability notes recorded in the catalogue |
+| Tools | Copy URLs, open browser pages, verify servers and configure private access |
 
-Descarga el ZIP instalable desde la [última release](https://github.com/jordan-zav/Peruspatial-Hub/releases/latest) y cárgalo mediante **Complementos → Administrar e instalar complementos → Instalar a partir de ZIP**.
+The project covers geology, geography, remote sensing, environment,
+hydrocarbons, hydrogeology, archaeology and territorial management. It does not
+change the ownership or terms of the services it accesses.
 
-## Licencia de código abierto
+## Institutions and recorded availability
 
-PeruSpatial Hub se distribuye bajo la GNU General Public License v3.0. Puede usar, estudiar, modificar y redistribuir el código de acuerdo con los términos incluidos en el archivo LICENSE.
+The following checks belong to **15 July 2026**, not to this documentation
+update. External services can change or become unavailable at any time.
 
----
+| Institution | Directory / recorded contents |
+| --- | --- |
+| INGEMMET / GEOCATMIN | Two ArcGIS REST directories with mining cadastre, geology and geochemistry |
+| IGN / IDEP | National mapping and institutional ArcGIS directories |
+| ANA through IDEP | Wetlands, springs, glaciers, stations and hydrographic units |
+| IGP | REST, general WMS, direct recent NDVI condition/anomaly services and other public layers |
+| MINAM | Environmental and zoning services in Geoservidor MINAM |
+| SERNANP | Protected-area management, monitoring and mapping |
+| SERFOR | GeoSERFOR forest services, imagery and geoprocessing |
+| Ministry of Culture | Official SIGDA directory |
+| OSINERGMIN | Electricity, gas, hydrocarbons, mining and mapping |
+| OEFA | PIFA monitoring, inspections, environmental emergencies and interoperable data |
 
-## Funciones
+IGP includes services used by Zonifica Perú, isotope stations, seismic/volcanic
+monitoring and base maps. REST and WMS layers can be explored directly.
 
-1. **Catálogo Unificado**: Directorios GIS oficiales verificados y clasificados por institución y temática. Cada directorio descubre dinámicamente los servicios que la institución publica en ese momento.
-2. **Búsqueda local**: Filtra el inventario por palabras clave (por ejemplo, "sismos", "concesiones" o "cuencas") y por categoría.
-3. **Carga de capas**: Expande un servicio ArcGIS REST o WMS y haz doble clic en una capa para añadirla al mapa mediante el proveedor de QGIS correspondiente.
-4. **Integración con el Explorador de QGIS**: Registra de forma individual o masiva todas las conexiones oficiales del catálogo directamente en el panel **Explorador** nativo de QGIS (bajo las categorías WMS/WMTS y ArcGIS REST).
-5. **Avisos de datum**: Las fuentes marcadas con posibles capas en **PSAD56** muestran un recordatorio para revisar el CRS y la transformación al sistema del proyecto. El aviso no sustituye la validación espacial de los datos.
-6. **Fuentes y acceso**: El botón **Fuentes** muestra las notas de disponibilidad incluidas en el catálogo. En **Herramientas** puede verificar servidores y configurar el acceso privado mediante el administrador de autenticación de QGIS.
----
+### Sources not currently integrated
 
-## Servidores de información integrados y verificados
+- CENEPRED: SIGRID offers account/email access, but its Web Adaptor could not
+  reach internal servers during the recorded check; this is not merely a REST login prompt.
+- COFOPRI: the historical domain had an incomplete certificate chain and its
+  REST endpoint returned 404. The plugin does not disable TLS verification.
+- SUNARP: Visor BGR requires DNI, issue date and captcha. No anonymous REST
+  directory was verified for responsible registration.
 
-La disponibilidad indicada fue comprobada el 15 de julio de 2026. Como son servicios externos administrados por cada institución, pueden cambiar o quedar temporalmente fuera de línea sin previo aviso.
+The Sources information keeps these notes visible. The plugin does not bundle
+credentials, bypass captchas or turn off certificate validation.
 
-*   **INGEMMET (GEOCATMIN)**: dos directorios ArcGIS REST activos con catastro minero, geología, geoquímica y otros servicios publicados por la institución.
-*   **IGN e IDEP**: cartografía nacional y directorios institucionales publicados mediante ArcGIS REST.
-*   **ANA mediante IDEP**: servicio institucional con humedales costeros, manantiales, glaciares, estaciones hidrometeorológicas y unidades hidrográficas.
-*   **IGP**: directorio ArcGIS REST oficial, catálogo WMS general y accesos WMS directos a Condición NDVI y Anomalías NDVI de los últimos 30 días. Incluye las capas empleadas por Zonifica Perú, estaciones isotópicas, monitoreo sísmico y volcánico, mapas base y otras colecciones públicas. Tanto las capas REST como las WMS pueden explorarse y añadirse directamente al mapa.
-*   **MINAM**: directorio ArcGIS REST del Geoservidor MINAM, con servicios ambientales y de zonificación publicados actualmente.
-*   **SERNANP**: directorio ArcGIS REST con gestión, monitoreo y cartografía de áreas naturales protegidas.
-*   **SERFOR**: nuevo directorio oficial de GeoSERFOR con servicios forestales, imágenes, geoprocesamiento y visor.
-*   **Ministerio de Cultura**: directorio oficial SIGDA con los servicios que la institución mantiene publicados.
-*   **OSINERGMIN**: Mapa Energético Minero con servicios de electricidad, gas natural, hidrocarburos, minería y cartografía.
-*   **OEFA**: directorio PIFA con servicios públicos de monitoreo, fiscalización, emergencias ambientales, vigilancia y datos interoperables.
+## Manual installation
 
-### Fuentes no integradas actualmente
+Copy the complete peruspatial_hub folder into python/plugins in your active
+QGIS profile. Typical profile plugin directories are:
 
-*   **CENEPRED**: el visor SIGRID ofrece acceso mediante cuenta o correo, pero su ArcGIS Web Adaptor indicó que no podía acceder a ningún servidor interno durante la verificación. No se trata simplemente de una solicitud de login REST.
-*   **COFOPRI**: el dominio histórico responde con una cadena de certificado incompleta y el endpoint REST devuelve 404. No se integrará desactivando la validación TLS.
-*   **SUNARP**: el Visor BGR requiere DNI vigente, fecha de emisión y captcha. No existe un directorio REST anónimo verificado que el plugin pueda registrar responsablemente.
+| System | Location |
+| --- | --- |
+| Windows | %APPDATA%/QGIS/QGIS3/profiles/default/python/plugins |
+| Linux | ~/.local/share/QGIS/QGIS3/profiles/default/python/plugins |
+| macOS | ~/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins |
 
-El botón de información de la interfaz mantiene este diagnóstico visible dentro de QGIS. El plugin no incluye credenciales, no elude captchas y no desactiva la validación de certificados.
+Restart QGIS, enable the installed plugin and open its toolbar or Database menu
+entry. Use your actual profile directory if it is not named default.
 
----
+## Datum and spatial accuracy
 
-## Instalación Manual
+Do not assume that historical layers are WGS84. Legacy Peruvian maps may use
+PSAD56; merely assigning WGS84 can misplace the data, with shifts of up to
+200 metres noted in the original guidance. Inspect source metadata and use an
+appropriate documented datum transformation instead of relabelling coordinates.
 
-Dado que el plugin está en desarrollo activo, puede instalarlo manualmente siguiendo estos pasos:
+Keep a consistent projected project CRS, typically UTM 17S, 18S or 19S according
+to location. The PSAD56 reminder is a prompt to review the data, not a verified
+transformation. Absence of the reminder does not certify a layer's CRS.
 
-1. Localice la carpeta de plugins de su perfil de QGIS. Normalmente se encuentra en:
-   * **Windows**: C:\Users\TuUsuario\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins\
-   * **Linux**: ~/.local/share/QGIS/QGIS3/profiles/default/python/plugins/
-   * **macOS**: /Users/TuUsuario/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins/
-2. Copie la carpeta completa peruspatial_hub dentro del directorio plugins anterior.
-3. Abra QGIS, vaya al menú superior **Complementos** > **Administrar e instalar complementos...**
-4. Busque **PeruSpatial Hub** en la sección "Instalados" y active la casilla correspondiente.
-5. Verá un nuevo ícono de globo/base de datos en la barra de herramientas "Base de datos" y una opción en el menú **Base de datos** > **PeruSpatial Hub** para abrir el panel.
+## Panel layout
 
----
+Search and category controls sit above the catalogue. Details for the selected
+service or layer appear below it. Add to map is the primary action; Register
+connection saves the choice in the QGIS Browser. Tools groups URL copying,
+browser opening, authentication, connection registration and server checks.
+The panel follows the QGIS font and palette.
 
-## Reglas Críticas de Precisión Espacial (Datum y CRS)
+## Development and project status
 
-Si está trabajando con datos arqueológicos o geofísicos en el Perú, siga rigurosamente estas reglas:
-
-*   **No asuma WGS84 como único datum**: Las capas antiguas y planos arqueológicos heredados suelen estar en **PSAD56 (Provisional South American 1956)**. Si simplemente "define" la proyección como WGS84, sufrirá un **desfase de hasta 200 metros** en el terreno.
-*   **Use transformaciones de datum oficiales**: Al importar datos de instituciones como el Ministerio de Cultura en PSAD56, aplique siempre herramientas de reproyección utilizando los coeficientes oficiales de transformación hacia WGS84/SIRGAS.
-*   **Mantenga un CRS Maestro de Proyecto**: Realice el procesamiento geofísico y mapeo en un único CRS proyectado (generalmente UTM Huso 17S, 18S o 19S dependiendo de la ubicación regional en el Perú).
-
-## Soporte y código fuente
-
-Desarrollado por [Jordan Zavaleta](https://gisgeo.dev).
-
-El código fuente y el seguimiento de incidencias se encuentran en [GitHub](https://github.com/jordan-zav/peruspatial-hub).
-
-## Desarrollo
-
-Las funciones de construcción de URLs se prueban sin depender de una instalación de QGIS:
-
-```bash
+~~~powershell
 python -m pip install -r requirements-dev.txt
 python -m pytest
 python scripts/package_plugin.py
-```
+~~~
 
-El empaquetador crea un ZIP con la carpeta `peruspatial_hub` requerida por QGIS.
+The packager creates a ZIP with the peruspatial_hub directory QGIS expects.
+Pure URL-building functions can be tested without QGIS. Before a release,
+also check the ZIP, plugin loading and a sample of real services in QGIS.
+A responsive endpoint does not prove that all its sublayers, metadata or
+access policies remain unchanged.
 
-## Estado del proyecto
+## Licensing and contact
 
-La fuente 1.3.0 se encuentra en desarrollo activo. El catálogo local y las
-funciones puras tienen pruebas automatizadas; antes de cada release también se
-deben verificar el ZIP, la carga del complemento y una muestra de servicios en
-QGIS. Que un endpoint responda no garantiza que todas sus subcapas, metadatos o
-políticas permanezcan sin cambios.
-
-## Licencia y atribución
-
-PeruSpatial Hub se distribuye bajo la [GNU General Public License v3.0](LICENSE).
-Los datos y servicios consultados no cambian de licencia: conservan la autoría,
-atribución y condiciones de cada institución pública proveedora.
-
-Jordan Zavaleta — GisGeo Dev<br>
-[jordanzav@gisgeo.dev](mailto:jordanzav@gisgeo.dev) · [gisgeo.dev](https://gisgeo.dev)
-
-### Organización del panel
-
-El buscador y el filtro de categorías están sobre el catálogo. Al seleccionar un servicio o una capa, sus detalles aparecen debajo. **Añadir al mapa** es la acción principal; **Registrar conexión** guarda la selección en el navegador de QGIS. El menú **Herramientas** reúne copiar URL, abrir en el navegador, configurar acceso privado, registrar todas las conexiones, verificar servidores y consultar la información del complemento. **Fuentes** muestra la disponibilidad documentada de las instituciones.
-
-El panel utiliza la tipografía y la paleta de QGIS. El aviso de datum aparece al seleccionar una fuente marcada con posibles capas históricas en PSAD56; la ausencia del aviso no certifica el CRS de las capas.
+[GNU GPL v3](LICENSE) applies to the software. Public-service data retain each
+institution's authorship, attribution and access conditions.
+Jordan Zavaleta — [GisGeo Dev](https://gisgeo.dev) ·
+[jordanzav@gisgeo.dev](mailto:jordanzav@gisgeo.dev) ·
+[Source and issues](https://github.com/jordan-zav/Peruspatial-Hub).
