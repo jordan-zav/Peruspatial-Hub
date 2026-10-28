@@ -1,6 +1,6 @@
 import pytest
 
-from peruspatial_hub_catalog import arcgis_directory, arcgis_service_records, arcgis_data_kind, is_psad56_reference
+from peruspatial_hub_catalog import arcgis_directory, arcgis_service_records, arcgis_data_kind, is_psad56_reference, resolve_arcgis_inventory
 from scripts import build_catalog as builder
 
 
@@ -160,3 +160,66 @@ def test_bulk_metadata_falls_back_to_individual_layers_without_marking_inventory
     entries, warnings = builder.inventory_arcgis_service(SOURCE, DESCRIPTOR)
     assert not warnings and entries[0]["metadata_bulk_fallback"]
     assert entries[1]["metadata_level"] == "layer" and entries[1]["field_count"] == 1
+
+
+def test_bulk_only_layers_are_included_only_after_individual_endpoint_verification():
+    listing = {"layers": [{"id": 0, "name": "Listed", "type": "Feature Layer"}]}
+    def fetch(part):
+        if part == "layers":
+            return {"layers": listing["layers"] + [{"id": 1, "name": "Extra", "type": "Feature Layer"}]}
+        return {"id": part, "name": "Verified extra", "type": "Feature Layer", "fields": []}
+    resolved = resolve_arcgis_inventory(listing, "FeatureServer", fetch)
+    assert [entry["id"] for entry in resolved["layers"]] == [0, 1]
+    assert resolved["layers"][1]["name"] == "Verified extra"
+    assert resolved["layers"][1]["inventory_discovery"] == "bulk_verified"
+    assert resolved["_inventory_complete"]
+
+
+def test_unreachable_bulk_only_layer_does_not_become_a_fabricated_resource():
+    def fetch(part):
+        if part == "layers":
+            return {"layers": [{"id": 0, "name": "Unreachable", "type": "Feature Layer"}]}
+        raise RuntimeError("Token Required")
+    resolved = resolve_arcgis_inventory({"layers": []}, "FeatureServer", fetch)
+    assert not resolved["layers"] and not resolved["_inventory_complete"]
+    assert "Token Required" in resolved["_inventory_errors"][0]
+
+
+def test_missing_positive_sublayers_and_negative_sentinels_are_not_invented():
+    listing = {"layers": [{"id": 0, "name": "Broken group", "type": "Group Layer", "subLayerIds": [127]}]}
+    calls = []
+    def fetch(part):
+        calls.append(part)
+        if part == "layers":
+            return {"layers": [{"id": 0, "name": "Broken group", "type": "Group Layer", "subLayers": [{"id": -1}]}]}
+        raise RuntimeError("Service layer not found")
+    resolved = resolve_arcgis_inventory(listing, "MapServer", fetch)
+    assert not resolved["_inventory_complete"] and len(resolved["layers"]) == 1
+    assert "missing_sublayers" in resolved["layers"][0]["metadata_warnings"]
+    assert 127 in calls and -1 not in calls
+
+
+def test_a_confirmed_group_retires_only_its_stale_leaf_even_when_children_are_unavailable():
+    url = DESCRIPTOR["url"]
+    old_group = {"type": "arcgis_map_layer", "url": url + "/0", "service_url": url, "name": "Old leaf"}
+    old_child = dict(old_group, url=url + "/127", name="Unavailable child")
+    status = {"status": "partial", "confirmed_group_urls": [url + "/0"], "verified_services": []}
+    entries, _ = builder.merge_source_refresh({"entries": [old_group, old_child]}, [], status, SOURCE, [SOURCE], "now")
+    assert len(entries) == 1 and entries[0]["url"] == old_child["url"] and entries[0]["stale"]
+
+
+def test_reference_resolution_honors_cancellation_before_network():
+    def forbidden(part):
+        raise AssertionError("Cancelled inventory must not perform network I/O")
+    with pytest.raises(RuntimeError, match="cancelada"):
+        resolve_arcgis_inventory({"layers": []}, "MapServer", forbidden, cancelled=lambda: True)
+
+
+def test_reference_resolution_is_bounded():
+    listing = {"layers": [{"id": 0, "name": "Group", "type": "Group Layer", "subLayerIds": [1, 2]}]}
+    calls = []
+    def fetch(part):
+        calls.append(part)
+        return listing if part == "layers" else {"id": part, "name": "Leaf", "type": "Feature Layer"}
+    resolved = resolve_arcgis_inventory(listing, "MapServer", fetch, max_requests=0)
+    assert calls == ["layers"] and not resolved["_inventory_complete"]

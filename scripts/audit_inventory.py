@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 
 from scripts import build_catalog as builder
 from peruspatial_hub_sources import LIVE_SERVERS
-from peruspatial_hub_catalog import arcgis_service_records, arcgis_data_kind
+from peruspatial_hub_catalog import arcgis_data_kind, resolve_arcgis_inventory
 from peruspatial_hub_urls import append_rest_path, clean_rest_url
 
 
@@ -148,7 +148,7 @@ def compact_layer(metadata, is_table=False):
     result.update(is_table=is_table, extent=extent, field_count=len(fields),
         fields=[{key: field[key] for key in ("name", "type", "alias", "length", "nullable") if key in field}
                 for field in fields if isinstance(field, dict)])
-    result["issues"] = []
+    result["issues"] = sorted(set(metadata.get("metadata_warnings") or []))
     names = [field.get("name") for field in fields if isinstance(field, dict)]
     if len(names) != len(set(names)):
         result["issues"].append("duplicate_field_names")
@@ -165,7 +165,8 @@ def audit_rest_service(url, entries):
     result = {"url": url, "institution": entries[0].get("institution"), "layers": [], "errors": []}
     try:
         root = builder.fetch_json(url)
-        arcgis_service_records(root, "ImageServer" if url.endswith("/ImageServer") else "MapServer")
+        kind = "ImageServer" if url.endswith("/ImageServer") else "FeatureServer" if url.endswith("/FeatureServer") else "MapServer"
+        root = resolve_arcgis_inventory(root, kind, lambda part: builder.fetch_json(append_rest_path(url, part)))
         result["service_metadata"] = {key: root[key] for key in (
             "currentVersion", "serviceDescription", "capabilities", "supportedQueryFormats",
             "spatialReference", "fullExtent", "initialExtent", "maxRecordCount") if key in root}
@@ -173,18 +174,7 @@ def audit_rest_service(url, entries):
             result["image"] = compact_layer(root)
             result["status"] = "ok" if "bandCount" in root or "pixelType" in root else "invalid_image_metadata"
             return result
-        if not isinstance(root.get("layers"), list) and not isinstance(root.get("tables"), list):
-            raise ValueError("Service metadata does not expose a layer/table inventory")
-        try:
-            detail = builder.fetch_json(append_rest_path(url, "layers"))
-            if not isinstance(detail.get("layers"), list) and not isinstance(detail.get("tables"), list):
-                raise ValueError("Bulk layer metadata is not an inventory")
-            detailed = {(record.get("id"), table): record
-                        for table, key in ((False, "layers"), (True, "tables"))
-                        for record in detail.get(key, [])}
-        except Exception as exc:
-            detailed = {}
-            result["bulk_fallback"] = str(exc)
+        result["errors"].extend({"error": error} for error in root["_inventory_errors"])
         remote_ids = set()
         for table, key in ((False, "layers"), (True, "tables")):
             for summary in root.get(key, []):
@@ -192,7 +182,7 @@ def audit_rest_service(url, entries):
                 if layer_id is None:
                     continue
                 remote_ids.add(layer_id)
-                metadata = detailed.get((layer_id, table))
+                metadata = summary
                 if metadata is None or not any(field in metadata for field in ("fields", "extent", "subLayers", "subLayerIds")):
                     try:
                         metadata = builder.fetch_json(append_rest_path(url, layer_id))
@@ -202,6 +192,7 @@ def audit_rest_service(url, entries):
                 result["layers"].append(compact_layer(metadata, table))
         local_ids = {entry["layer_id"] for entry in entries if "layer_id" in entry}
         result["local_ids_absent_from_service"] = sorted(local_ids - remote_ids)
+        result["inventory_complete"] = root["_inventory_complete"] and not result["errors"]
         result["status"] = "partial" if result["errors"] else "ok"
     except Exception as exc:
         result.update(status="invalid_metadata" if isinstance(exc, ValueError) else "unavailable", error=str(exc))
@@ -243,13 +234,14 @@ def compare_inventory(before, after, services):
             continue
         url = clean_rest_url(entry.get("service_url", ""))
         service = service_index.get(url)
-        if service is None or service["status"] != "ok":
+        if service is None or service["status"] not in {"ok", "partial"}:
             unverified.append({"url": entry["url"], "name": entry["name"]})
             continue
         remote = {layer.get("id"): layer for layer in service["layers"]}
         layer = remote.get(entry["layer_id"])
         if layer is None:
-            confirmed_missing.append({"url": entry["url"], "name": entry["name"]})
+            target = confirmed_missing if service.get("inventory_complete", True) else unverified
+            target.append({"url": entry["url"], "name": entry["name"]})
         elif arcgis_data_kind(layer) == "grupo":
             repurposed.append({"url": entry["url"], "old": entry["name"], "published_group": layer.get("name")})
         elif entry["name"] != layer.get("name"):
@@ -267,6 +259,7 @@ def compare_inventory(before, after, services):
         "entries_with_geometry_types": sum(bool(entry.get("geometry_type")) for entry in after["entries"]),
         "entries_with_crs_metadata": sum(bool(entry.get("spatial_reference")) for entry in after["entries"]),
         "entries_with_metadata_warnings": sum(bool(entry.get("metadata_warnings")) for entry in after["entries"]),
+        "entries_with_duplicate_fields": sum("duplicate_field_names" in entry.get("metadata_warnings", []) for entry in after["entries"]),
         "stale_entries": sum(bool(entry.get("stale")) for entry in after["entries"])}
 
 
@@ -306,7 +299,9 @@ def main():
         "refreshed_entries": refreshed["entry_count"], "sources": refreshed["sources"],
         "services": len(results), "service_statuses": dict(Counter(item["status"] for item in results)),
         "unavailable_services": [{key: item[key] for key in ("url", "institution", "status", "error") if key in item}
-                                 for item in results if item["status"] != "ok"],
+                                 for item in results if item["status"] not in {"ok", "partial"}],
+        "incomplete_service_hierarchies": [{"url": item["url"], "errors": item["errors"]}
+                                          for item in results if item["status"] == "partial"],
         "layer_metadata_records": sum(len(item["layers"]) for item in results),
         "image_metadata_records": sum("image" in item for item in results),
         "field_metadata_records": sum(layer["field_count"] for item in results

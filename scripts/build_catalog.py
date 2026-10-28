@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from peruspatial_hub_catalog import CATALOG_SCHEMA_VERSION, normalize_search_text, arcgis_directory, arcgis_service_records, arcgis_data_kind, is_psad56_reference
+from peruspatial_hub_catalog import CATALOG_SCHEMA_VERSION, normalize_search_text, arcgis_directory, arcgis_service_records, arcgis_data_kind, resolve_arcgis_inventory, arcgis_metadata_fields
 from peruspatial_hub_ogc import merge_crs, parse_wms_layer_catalog
 from peruspatial_hub_sources import LIVE_SERVERS
 from peruspatial_hub_urls import (
@@ -112,34 +112,7 @@ def arcgis_service_entry(source, descriptor, metadata=None):
 
 
 def layer_metadata_fields(record, service_metadata, is_table=False, is_image=False):
-    """Keep useful metadata without embedding renderer payloads or field schemas."""
-    geometry = record.get("geometryType")
-    data_kind = "raster" if is_image else arcgis_data_kind(dict(record, is_table=is_table or record.get("is_table", False)))
-    is_table = data_kind == "tabla"
-    fields = {"data_kind": data_kind, "is_table": is_table}
-    if geometry and not is_table:
-        fields["geometry_type"] = geometry
-    if isinstance(record.get("fields"), list):
-        fields["field_count"] = len(record["fields"])
-        names = [field.get("name") for field in record["fields"] if isinstance(field, dict)]
-        if len(names) != len(set(names)):
-            fields["metadata_warnings"] = ["duplicate_field_names"]
-    if isinstance(record.get("capabilities"), str):
-        fields["capabilities"] = record["capabilities"]
-    extent = record.get("extent") or service_metadata.get("fullExtent") or {}
-    extent = extent if isinstance(extent, dict) else {}
-    if extent and not is_table:
-        fields["extent"] = extent
-    spatial_reference = (record.get("spatialReference") or extent.get("spatialReference")
-                         or service_metadata.get("spatialReference"))
-    if isinstance(spatial_reference, dict) and spatial_reference and not is_table:
-        fields["spatial_reference"] = spatial_reference
-        if is_psad56_reference(spatial_reference):
-            fields["crs_warning"] = True
-    for source_key, target_key in (("minScale", "min_scale"), ("maxScale", "max_scale")):
-        if isinstance(record.get(source_key), (int, float)):
-            fields[target_key] = record[source_key]
-    return fields
+    return arcgis_metadata_fields(record, service_metadata, is_table, is_image)
 
 
 def arcgis_layer_entries(source, descriptor, metadata=None, detailed=None):
@@ -200,20 +173,26 @@ def arcgis_layer_entries(source, descriptor, metadata=None, detailed=None):
             "is_loaded": True,
         }
         entry.update(metadata_fields)
+        if record.get("inventory_discovery"):
+            entry["inventory_discovery"] = record["inventory_discovery"]
         entries.append(finalize_entry(entry))
     return entries
 
 
 def inventory_arcgis_service(source, descriptor):
     metadata = fetch_json(descriptor["url"])
+    metadata = resolve_arcgis_inventory(metadata, descriptor["service_type"],
+        lambda part: fetch_json(append_rest_path(descriptor["url"], part)))
     records = arcgis_service_records(metadata, descriptor["service_type"])
     service_entry = arcgis_service_entry(source, descriptor, metadata)
-    detailed, warnings = {}, []
+    service_entry["inventory_complete"] = metadata["_inventory_complete"]
+    service_entry["confirmed_group_ids"] = [record["id"] for record in records if arcgis_data_kind(record) == "grupo"]
+    if not metadata["_inventory_complete"]:
+        service_entry["metadata_warnings"] = ["incomplete_sublayers"]
+    detailed = {record["id"]: record for record in records if record["id"] in metadata.get("_inventory_detailed_ids", [])}
+    warnings = [f"{descriptor['url']}: {error}" for error in metadata["_inventory_errors"]]
     if descriptor["service_type"] != "ImageServer":
-        try:
-            detail = fetch_json(append_rest_path(descriptor["url"], "layers"))
-            detailed = {record["id"]: record for record in arcgis_service_records(detail, descriptor["service_type"])}
-        except Exception:
+        if not detailed:
             service_entry["metadata_bulk_fallback"] = True
         for record in records:
             if record["id"] not in detailed:
@@ -224,6 +203,7 @@ def inventory_arcgis_service(source, descriptor):
                     detailed[record["id"]] = detail
                 except Exception as exc:
                     warnings.append(f"{descriptor['url']}/{record['id']}: {exc}")
+                    service_entry["inventory_complete"] = False
     return [service_entry, *arcgis_layer_entries(source, descriptor, metadata, detailed)], warnings
 
 
@@ -275,6 +255,7 @@ def inventory_arcgis(source):
     descriptors, errors, directory_count, verified_directories = discover_arcgis_services(source)
     entries = []
     verified_services = []
+    confirmed_groups = []
 
     with ThreadPoolExecutor(max_workers=4) as executor:
         future_map = {
@@ -286,7 +267,10 @@ def inventory_arcgis(source):
                 service_entries, warnings = future.result()
                 entries.extend(service_entries)
                 errors.extend(warnings)
-                verified_services.append(future_map[future]["url"])
+                if service_entries[0]["inventory_complete"]:
+                    verified_services.append(future_map[future]["url"])
+                confirmed_groups.extend(append_rest_path(future_map[future]["url"], layer_id)
+                                        for layer_id in service_entries[0]["confirmed_group_ids"])
             except Exception as exc:
                 descriptor = future_map[future]
                 fallback = arcgis_service_entry(source, descriptor)
@@ -306,6 +290,7 @@ def inventory_arcgis(source):
         "error_count": len(errors),
         "verified_directories": sorted(verified_directories),
         "verified_services": sorted(verified_services),
+        "confirmed_group_urls": sorted(confirmed_groups),
     }
 
 
@@ -430,10 +415,13 @@ def merge_source_refresh(previous, fresh, status, source, all_sources, verified_
     fresh = verified
     fresh_keys = {entry_key(entry) for entry in fresh}
     verified_services = set(status.get("verified_services", []))
+    confirmed_group_urls = set(status.get("confirmed_group_urls", []))
     retained = []
     if status["status"] != "ok":
         for old in previous.get("entries", []):
             if entry_source(old, all_sources) == source["url"] and entry_key(old) not in fresh_keys:
+                if old.get("type") in {"arcgis_map_layer", "arcgis_vector_layer"} and clean_rest_url(old["url"]) in confirmed_group_urls:
+                    continue
                 old_url = clean_rest_url(old.get("service_url") or old["url"])
                 if not old.get("service_url") and old_url.rsplit("/", 1)[-1].isdigit():
                     old_url = old_url.rsplit("/", 1)[0]

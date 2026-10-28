@@ -33,6 +33,38 @@ def arcgis_data_kind(record):
     return "mixto"
 
 
+def arcgis_metadata_fields(record, service_metadata, is_table=False, is_image=False):
+    """Shared compact metadata for live tree nodes and the bundled inventory."""
+    data_kind = "raster" if is_image else arcgis_data_kind(dict(record, is_table=is_table or record.get("is_table", False)))
+    is_table = data_kind == "tabla"
+    result = {"data_kind": data_kind, "is_table": is_table}
+    if record.get("geometryType") and not is_table:
+        result["geometry_type"] = record["geometryType"]
+    warnings = list(record.get("metadata_warnings") or [])
+    if isinstance(record.get("fields"), list):
+        result["field_count"] = len(record["fields"])
+        names = [field.get("name") for field in record["fields"] if isinstance(field, dict)]
+        if len(names) != len(set(names)):
+            warnings.append("duplicate_field_names")
+    if warnings:
+        result["metadata_warnings"] = sorted(set(warnings))
+    if isinstance(record.get("capabilities"), str):
+        result["capabilities"] = record["capabilities"]
+    extent = record.get("extent") or service_metadata.get("fullExtent") or {}
+    extent = extent if isinstance(extent, dict) else {}
+    if extent and not is_table:
+        result["extent"] = extent
+    reference = record.get("spatialReference") or extent.get("spatialReference") or service_metadata.get("spatialReference")
+    if isinstance(reference, dict) and reference and not is_table:
+        result["spatial_reference"] = reference
+        if is_psad56_reference(reference):
+            result["crs_warning"] = True
+    for key, target in (("minScale", "min_scale"), ("maxScale", "max_scale")):
+        if isinstance(record.get(key), (int, float)):
+            result[target] = record[key]
+    return result
+
+
 def arcgis_directory(metadata):
     """Validate directory content before treating it as a complete inventory."""
     if not isinstance(metadata, dict) or not any(key in metadata for key in ("folders", "services")):
@@ -86,6 +118,91 @@ def arcgis_service_records(metadata, service_kind):
             current = by_id[current].get("parentLayerId", -1)
         checked.update(chain)
     return records
+
+
+def resolve_arcgis_inventory(metadata, service_kind, fetch_part, cancelled=None, max_requests=256):
+    """Reconcile summaries, bulk metadata and explicitly referenced sublayers.
+
+    fetch_part receives an integer layer ID or 'layers'. Unlisted IDs are
+    accepted only after their individual endpoint confirms the same ID.
+    """
+    listed = arcgis_service_records(metadata, service_kind)
+    if service_kind == "ImageServer":
+        return dict(metadata, _inventory_complete=True, _inventory_errors=[])
+    records = {record["id"]: dict(record) for record in listed}
+    detailed_ids, errors, unlisted = set(), [], []
+    try:
+        if cancelled and cancelled():
+            raise RuntimeError("carga cancelada")
+        bulk = arcgis_service_records(fetch_part("layers"), service_kind)
+        for record in bulk:
+            if record["id"] in records:
+                records[record["id"]].update(record)
+                detailed_ids.add(record["id"])
+            else:
+                unlisted.append(record)
+    except Exception:
+        bulk = []
+    if cancelled and cancelled():
+        raise RuntimeError("carga cancelada")
+    requests = 0
+
+    def fetch_id(layer_id, parent_id=None, template=None):
+        nonlocal requests
+        if cancelled and cancelled():
+            raise RuntimeError("carga cancelada")
+        requests += 1
+        if requests > max_requests:
+            raise ValueError("se alcanzó el límite de consultas adicionales de subcapas")
+        detail = fetch_part(layer_id)
+        if not isinstance(detail, dict) or detail.get("id") != layer_id:
+            raise ValueError("los metadatos no corresponden al ID solicitado")
+        record = dict(template or {}, **detail)
+        if parent_id is not None and "parentLayerId" not in record and not record.get("parentLayer"):
+            record["parentLayerId"] = parent_id
+        normalized = arcgis_service_records({"tables" if record.get("is_table") else "layers": [record]}, service_kind)[0]
+        records[layer_id] = normalized
+        detailed_ids.add(layer_id)
+
+    for record in unlisted:
+        try:
+            fetch_id(record["id"], template=record)
+            records[record["id"]]["inventory_discovery"] = "bulk_verified"
+        except Exception as exc:
+            errors.append(f"ID {record['id']} anunciado solo en metadatos completos: {exc}")
+    visited, failed_ids, pending = set(), set(), list(records)
+    while pending:
+        if cancelled and cancelled():
+            raise RuntimeError("carga cancelada")
+        layer_id = pending.pop()
+        if layer_id in visited:
+            continue
+        visited.add(layer_id)
+        record = records[layer_id]
+        children = list(record.get("subLayerIds") or [])
+        children.extend(child.get("id") for child in (record.get("subLayers") or []) if isinstance(child, dict))
+        for child in dict.fromkeys(children):
+            if type(child) is not int or child < 0:
+                errors.append(f"Grupo {layer_id}: referencia de subcapa inválida ({child})")
+                record.setdefault("metadata_warnings", []).append("missing_sublayers")
+            elif child not in records:
+                try:
+                    if child in failed_ids:
+                        raise ValueError("la subcapa ya respondió con error")
+                    fetch_id(child, parent_id=layer_id)
+                    records[child]["inventory_discovery"] = "reference_verified"
+                    pending.append(child)
+                except Exception as exc:
+                    failed_ids.add(child)
+                    errors.append(f"Grupo {layer_id}, subcapa {child}: {exc}")
+                    record.setdefault("metadata_warnings", []).append("missing_sublayers")
+    result = dict(metadata,
+        layers=[record for record in records.values() if not record.get("is_table")],
+        tables=[record for record in records.values() if record.get("is_table")],
+        _inventory_complete=not errors, _inventory_errors=sorted(set(errors)),
+        _inventory_detailed_ids=sorted(detailed_ids))
+    arcgis_service_records(result, service_kind)
+    return result
 
 
 def normalize_search_text(value: object) -> str:

@@ -10,14 +10,15 @@ ramas protegidas mediante credenciales ajenas.
 | Revisión | Resultado |
 | --- | --- |
 | Inventario anterior | 12.396 entradas |
-| Inventario corregido | 12.393 entradas |
+| Inventario corregido | 12.395 entradas |
 | Servicios REST contrastados | 1.881 |
 | Servicios REST con metadatos accesibles | 1.863 |
+| Servicios accesibles con jerarquías incompletas, incluidos en los anteriores | 12 |
 | Servicios REST no verificables | 18 |
 | ImageServer examinados, incluidos en los servicios anteriores | 10 |
-| Registros de capas, tablas y grupos con metadatos | 11.242 |
+| Registros de capas, tablas y grupos con metadatos | 11.244 |
 | Capas WMS nombradas contrastadas con GetCapabilities | 464 |
-| Esquemas de atributos examinados | Más de 218.000 descriptores de campos publicados |
+| Esquemas de atributos examinados | 218.546 descriptores de campos publicados |
 
 Las 18 respuestas fallidas fueron nueve solicitudes de token, tres respuestas
 de servicio no encontrado, cuatro respuestas de servicio detenido o no
@@ -51,6 +52,10 @@ Se añadió además una defensa durante la carga: un favorito o resultado antigu
 que apunte a un ID convertido en grupo devuelve un mensaje para explorar el
 servicio, en lugar de cargarlo silenciosamente con el nombre antiguo.
 
+Se recuperaron dos capas de OSINERGMIN del servicio Gas_Natural/RD_Empresas_DemoV/FeatureServer: Manzanas Según Ingreso Per Cápita - INEI (ID 1) y Límite Distrital (ID 2). Faltan en el resumen del servicio, pero sus metadatos colectivos e individuales confirman que existen. El explorador y el catálogo contrastan ahora ambos listados y verifican individualmente las incorporaciones.
+
+Doce servicios accesibles publican jerarquías incompletas: 96 referencias positivas a subcapas no respondieron y también aparecen marcadores negativos. Se avisa del problema, se conservan los recursos verificables y no se fabrican subcapas ni se solicitan IDs negativos. Los IDs confirmados como grupos se retiran del índice de hojas incluso si otra parte del servicio está incompleta.
+
 ## Metadatos que ahora conserva el catálogo
 
 La clasificación usa el tipo publicado además de la geometría. Las tablas
@@ -60,8 +65,8 @@ MapServer mantiene la posibilidad de usar su representación ráster cuando el
 proveedor vectorial no sea compatible.
 
 La actualización corrigió 9.116 etiquetas de tipo y completó 4.763 rutas de
-grupos. Hay 9.799 entradas con número de campos, 9.363 con tipo de geometría y
-11.576 con referencia espacial publicada. Estos recuentos incluyen los tipos
+grupos. Hay 9.801 entradas con número de campos, 9.365 con tipo de geometría y
+11.578 con referencia espacial publicada. Estos recuentos incluyen los tipos
 de recurso a los que cada propiedad resulta aplicable. Una tabla sin geometría
 no hereda una extensión o CRS espacial del servicio.
 
@@ -90,6 +95,9 @@ DASH_ESTACIONES_RIMAC_DATOS_2026 de ANA cargó con sus cinco campos y sin
 geometría. Estas dos comprobaciones no equivalen a descargar y validar todos
 los valores de atributos de todas las capas.
 
+Las dos capas recuperadas de OSINERGMIN también cargaron con el proveedor
+nativo de QGIS, con siete y ocho campos respectivamente, sin errores de carga.
+
 Las 53 definiciones espaciales REST distintas se resolvieron en QGIS 3.44
 mediante EPSG, ESRI o el WKT publicado. Se añadieron avisos de datum a cinco
 entradas de SERFOR declaradas en PSAD56: el servicio y sus cuatro subcapas.
@@ -109,6 +117,14 @@ Las pruebas cubren respuestas incompletas, retención selectiva, cambios de tipo
 de ID, tablas, tipos sin geometría en el resumen, rutas de grupos, fechas,
 avisos PSAD56 y respaldo WKT. Las pruebas de widgets accionan los controles
 reales de Qt/QGIS y verifican también el mensaje de un ID obsoleto.
+
+Validación local del paquete en QGIS 3.44.12: 112 pruebas Python, 36 casos
+de widgets y diez comprobaciones de escritorio pasan. La instalación mediante
+el gestor de plugins, la descarga del plugin y el cierre del proceso terminan
+correctamente. Se comprobaron cuatro proveedores remotos y tres renderizados
+representativos. Bandit no encontró incidencias en los nueve módulos Python
+distribuidos. Se verificaron además las cuatro muestras de esquema descritas
+arriba y las definiciones de CRS del inventario completo.
 
 La auditoría genera los siguientes archivos fuera del código distribuido:
 

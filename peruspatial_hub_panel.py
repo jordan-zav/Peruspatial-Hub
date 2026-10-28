@@ -48,6 +48,8 @@ from .peruspatial_hub_catalog import (
     arcgis_service_records,
     arcgis_data_kind,
     is_psad56_reference,
+    resolve_arcgis_inventory,
+    arcgis_metadata_fields,
 )
 from .peruspatial_hub_sources import (
     ACTIVE_REST_ROOTS,
@@ -1337,6 +1339,10 @@ class PeruSpatialHubPanel(QDockWidget):
                     attempts=1 if discovering_catalog else 2,
                     authcfg=authcfg,
                 )
+                kind = node_data.get("service_kind") or self.service_kind_from_url(url, stype)
+                data = resolve_arcgis_inventory(data, kind,
+                    lambda part: self.fetch_arcgis_json(_append_rest_path(url, part), timeout=15, attempts=1, authcfg=authcfg),
+                    cancelled=task.isCanceled)
                 return "arcgis_service", data
             if stype == "wms":
                 payload = self.read_service_https(
@@ -1549,6 +1555,8 @@ class PeruSpatialHubPanel(QDockWidget):
         service_url = _clean_rest_url(service_data["url"])
         service_reference = metadata.get("spatialReference") or (metadata.get("fullExtent") or {}).get("spatialReference")
         service_data["crs_warning"] = bool(service_data.get("crs_warning")) or is_psad56_reference(service_reference)
+        if metadata.get("_inventory_errors"):
+            service_data["metadata_warnings"] = sorted(set(service_data.get("metadata_warnings", []) + ["incomplete_sublayers"]))
         service_kind = service_data.get("service_kind") or self.service_kind_from_url(
             service_url, service_data.get("stype")
         )
@@ -1587,6 +1595,7 @@ class PeruSpatialHubPanel(QDockWidget):
                     "institution": service_data["institution"],
                     "category": service_data["category"],
                     "description": "Grupo de subcapas del servicio ArcGIS REST.",
+                    **arcgis_metadata_fields(entry, metadata),
                 })
             else:
                 # MapServer vector sublayers keep the map-layer implementation so
@@ -1614,6 +1623,7 @@ class PeruSpatialHubPanel(QDockWidget):
                     "description": f"Capa {layer_id} del servicio ArcGIS REST {service_kind}.",
                     "crs_warning": service_data.get("crs_warning", False) or is_psad56_reference(
                         entry.get("spatialReference") or (entry.get("extent") or {}).get("spatialReference")),
+                    **arcgis_metadata_fields(entry, metadata),
                 })
             created[layer_id] = tree_item
             return tree_item
@@ -1689,7 +1699,8 @@ class PeruSpatialHubPanel(QDockWidget):
                                 s["geometry_type"], str(s["geometry_type"]))
                 metadata_facts.append(geometry)
             if type(s.get("field_count")) is int:
-                metadata_facts.append(f"{s['field_count']} campos publicados")
+                metadata_facts.append(f"{s['field_count']} campo publicado" if s["field_count"] == 1
+                                      else f"{s['field_count']} campos publicados")
             spatial_reference = s.get("spatial_reference") or {}
             if isinstance(spatial_reference, dict):
                 wkid = spatial_reference.get("latestWkid") or spatial_reference.get("wkid")
@@ -1698,6 +1709,8 @@ class PeruSpatialHubPanel(QDockWidget):
             facts_html = f"<p>{escape(' · '.join(metadata_facts))}</p>" if metadata_facts else ""
             warnings_html = ("<p><b>Revisar atributos.</b> La fuente publica nombres de campos repetidos.</p>"
                              if "duplicate_field_names" in (s.get("metadata_warnings") or []) else "")
+            if set(s.get("metadata_warnings") or []) & {"incomplete_sublayers", "missing_sublayers"}:
+                warnings_html += "<p><b>Subcapas no disponibles.</b> El servicio publica referencias a subcapas que no responden.</p>"
             self.metadata_panel.setHtml(
                 f"<h3>{name}</h3><p>{institution}</p>"
                 f"<p>{category} · {escape(str(kind))}</p>"

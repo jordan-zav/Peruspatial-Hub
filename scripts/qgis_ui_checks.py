@@ -534,6 +534,44 @@ def main():
 
     run_case("invalid_service_inventory", invalid_service_inventory)
 
+    def full_service_inventory(c, broken=False):
+        entry = dict(layer("Full inventory"), type="arcgis_service", stype="arcgis_featureserver",
+                     service_kind="FeatureServer", url="https://example.test/rest/services/Test/FeatureServer", is_loaded=False)
+        root = fixtures(c.panel, [entry])[0]
+        leaf = {"id": 0, "name": "Listed", "type": "Feature Layer", "parentLayerId": -1, "fields": []}
+        extra = {"id": 1, "name": "Bulk only", "type": "Feature Layer", "parentLayerId": -1,
+                 "fields": [{"name": "OBJECTID", "type": "esriFieldTypeOID"}], "geometryType": "esriGeometryPolygon"}
+        group = {"id": 0, "name": "Broken group", "type": "Group Layer", "parentLayerId": -1, "subLayerIds": [127]}
+        requested = []
+        def fetch(url, **kwargs):
+            requested.append(url)
+            if url == entry["url"]:
+                return {"layers": [group if broken else leaf]}
+            if url.endswith("/layers"):
+                return {"layers": [dict(group, subLayers=[{"id": -1}])] if broken else [leaf, extra]}
+            if not broken and url.endswith("/1"):
+                return extra
+            raise ValueError("Missing published child")
+        c.panel.fetch_arcgis_json = fetch
+        c.panel.load_dynamic_node(root)
+        wait_until(lambda: not c.panel._background_tasks)
+        assert root.data(0, Qt.ItemDataRole.UserRole)["is_loaded"]
+        if broken:
+            assert root.childCount() == 1 and root.child(0).childCount() == 0
+            select(c.panel, [root])
+            assert "incomplete_sublayers" in root.data(0, Qt.ItemDataRole.UserRole)["metadata_warnings"]
+            assert not any(url.endswith("/-1") for url in requested)
+        else:
+            assert root.childCount() == 2
+            node = next(root.child(i) for i in range(root.childCount()) if "Bulk only" in root.child(i).text(0))
+            select(c.panel, [node])
+            assert "1 campo publicado" in c.panel.metadata_panel.toPlainText()
+            assert entry["url"] + "/1" in requested
+        return {"broken_references": broken, "requests": len(requested), "children": root.childCount()}
+
+    run_case("bulk_only_verified_layer", full_service_inventory)
+    run_case("broken_group_no_phantom_layers", lambda c: full_service_inventory(c, broken=True))
+
     def obsolete_group_id(c):
         entry = dict(layer("Old cached name"), type="arcgis_map_layer", service_kind="MapServer", layer_id=6)
         c.panel.fetch_arcgis_json = lambda *a, **kw: {"id": 6, "name": "New group", "type": "Group Layer"}

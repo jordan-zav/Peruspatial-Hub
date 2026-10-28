@@ -79,6 +79,7 @@ def main():
         samples = [next(entry for entry in public if entry.get("is_table") and entry.get("field_count")),
                    next(entry for entry in public if "duplicate_field_names" in entry.get("metadata_warnings", [])
                         and entry.get("institution") == "MINCUL")]
+        samples.extend(entry for entry in public if entry.get("inventory_discovery") == "bulk_verified")
         for entry in samples:
             layer, errors = panel._instantiate_layer(entry)
             valid = layer is not None and layer.isValid()

@@ -17,6 +17,8 @@ La cobertura se registra también por servicio. Si un servicio responde con un i
 
 Las entradas pueden incluir tipo de dato, geometría, número de campos, capacidades, extensión, referencia espacial y ruta completa de grupos. metadata_level distingue una simple enumeración del directorio de los metadatos de servicio o capa. Las tablas sin geometría no heredan el CRS espacial del servicio. Las advertencias de campos duplicados describen el esquema publicado por la institución; no se renombra ni se inventa un campo para ocultar el problema.
 
+El inventario contrasta el resumen del servicio, los metadatos colectivos y las referencias explícitas de los grupos. Las capas que solo aparecen en los metadatos colectivos se incorporan tras confirmar su ID en el endpoint individual. Las referencias negativas o inaccesibles producen avisos de subcapas no disponibles; no se convierten en capas ficticias. Si la jerarquía está incompleta se conservan las entradas anteriores sin verificar, excepto los IDs confirmados como grupos, que dejan de indexarse como hojas importables.
+
 La auditoría profunda conserva una instantánea de respuestas y exporta los metadatos de capas y esquemas de campos:
 
 ~~~text
