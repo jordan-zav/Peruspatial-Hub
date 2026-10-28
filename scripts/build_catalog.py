@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from peruspatial_hub_catalog import CATALOG_SCHEMA_VERSION, normalize_search_text
+from peruspatial_hub_catalog import CATALOG_SCHEMA_VERSION, normalize_search_text, arcgis_directory, arcgis_service_records, arcgis_data_kind, is_psad56_reference
 from peruspatial_hub_ogc import merge_crs, parse_wms_layer_catalog
 from peruspatial_hub_sources import LIVE_SERVERS
 from peruspatial_hub_urls import (
@@ -87,7 +87,7 @@ def finalize_entry(entry):
     return entry
 
 
-def arcgis_service_entry(source, descriptor):
+def arcgis_service_entry(source, descriptor, metadata=None):
     service_type = descriptor["service_type"]
     is_image = service_type == "ImageServer"
     entry = {
@@ -104,25 +104,56 @@ def arcgis_service_entry(source, descriptor):
         "path": descriptor["path"],
         "crs_warning": source.get("crs_warning", False),
         "is_loaded": is_image,
+        "metadata_level": "service" if metadata is not None else "directory_listing",
     }
+    if metadata is not None:
+        entry.update(layer_metadata_fields(metadata, metadata, is_image=is_image))
     return finalize_entry(entry)
 
 
-def arcgis_layer_entries(source, descriptor):
+def layer_metadata_fields(record, service_metadata, is_table=False, is_image=False):
+    """Keep useful metadata without embedding renderer payloads or field schemas."""
+    geometry = record.get("geometryType")
+    data_kind = "raster" if is_image else arcgis_data_kind(dict(record, is_table=is_table or record.get("is_table", False)))
+    is_table = data_kind == "tabla"
+    fields = {"data_kind": data_kind, "is_table": is_table}
+    if geometry and not is_table:
+        fields["geometry_type"] = geometry
+    if isinstance(record.get("fields"), list):
+        fields["field_count"] = len(record["fields"])
+        names = [field.get("name") for field in record["fields"] if isinstance(field, dict)]
+        if len(names) != len(set(names)):
+            fields["metadata_warnings"] = ["duplicate_field_names"]
+    if isinstance(record.get("capabilities"), str):
+        fields["capabilities"] = record["capabilities"]
+    extent = record.get("extent") or service_metadata.get("fullExtent") or {}
+    extent = extent if isinstance(extent, dict) else {}
+    if extent and not is_table:
+        fields["extent"] = extent
+    spatial_reference = (record.get("spatialReference") or extent.get("spatialReference")
+                         or service_metadata.get("spatialReference"))
+    if isinstance(spatial_reference, dict) and spatial_reference and not is_table:
+        fields["spatial_reference"] = spatial_reference
+        if is_psad56_reference(spatial_reference):
+            fields["crs_warning"] = True
+    for source_key, target_key in (("minScale", "min_scale"), ("maxScale", "max_scale")):
+        if isinstance(record.get(source_key), (int, float)):
+            fields[target_key] = record[source_key]
+    return fields
+
+
+def arcgis_layer_entries(source, descriptor, metadata=None, detailed=None):
     service_type = descriptor["service_type"]
+    metadata = fetch_json(descriptor["url"]) if metadata is None else metadata
+    records = arcgis_service_records(metadata, service_type)
     if service_type == "ImageServer":
         return []
-
-    metadata = fetch_json(descriptor["url"])
-    records = []
-    for layer in metadata.get("layers", []):
-        record = dict(layer)
-        record["is_table"] = False
-        records.append(record)
-    for table in metadata.get("tables", []):
-        record = dict(table)
-        record["is_table"] = True
-        records.append(record)
+    detailed = detailed or {}
+    records = arcgis_service_records({
+        "layers": [dict(record, **detailed.get(record["id"], {})) for record in records if not record["is_table"]],
+        "tables": [dict(record, **detailed.get(record["id"], {})) for record in records if record["is_table"]],
+    }, service_type)
+    by_id = {record["id"]: record for record in records}
 
     entries = []
     stype = service_stype(service_type)
@@ -130,7 +161,7 @@ def arcgis_layer_entries(source, descriptor):
         layer_id = record.get("id")
         if layer_id is None:
             continue
-        if record.get("type") == "Group Layer" or record.get("subLayerIds"):
+        if arcgis_data_kind(record) == "grupo":
             continue
 
         name = record.get("name") or f"Capa {layer_id}"
@@ -140,6 +171,16 @@ def arcgis_layer_entries(source, descriptor):
             else "arcgis_map_layer"
         )
         layer_url = append_rest_path(descriptor["url"], layer_id)
+        parent_id = record.get("parentLayerId", -1)
+        ancestors = []
+        current_parent = parent_id
+        while current_parent in by_id:
+            parent = by_id[current_parent]
+            ancestors.append(parent.get("name") or f"Grupo {current_parent}")
+            current_parent = parent.get("parentLayerId", -1)
+        path = " / ".join([descriptor["path"], *reversed(ancestors), name])
+        metadata_fields = layer_metadata_fields(record, metadata, record.get("is_table", False))
+        display = {"tabla": "Tabla REST", "vectorial": "Vectorial REST", "raster": "Raster REST", "mixto": "Raster/Vectorial REST"}
         entry = {
             "type": layer_type,
             "stype": stype,
@@ -151,13 +192,39 @@ def arcgis_layer_entries(source, descriptor):
             "institution": source["institution"],
             "category": source["category"],
             "description": f"Capa {layer_id} del servicio ArcGIS REST {service_type}.",
-            "display_type": "Vectorial REST" if layer_type == "arcgis_vector_layer" else "Capa REST",
-            "path": f"{descriptor['path']} / {name}",
+            "display_type": display[metadata_fields["data_kind"]],
+            "path": path,
+            "parent_layer_id": parent_id,
+            "metadata_level": "layer" if layer_id in detailed else "service_listing",
             "crs_warning": source.get("crs_warning", False),
             "is_loaded": True,
         }
+        entry.update(metadata_fields)
         entries.append(finalize_entry(entry))
     return entries
+
+
+def inventory_arcgis_service(source, descriptor):
+    metadata = fetch_json(descriptor["url"])
+    records = arcgis_service_records(metadata, descriptor["service_type"])
+    service_entry = arcgis_service_entry(source, descriptor, metadata)
+    detailed, warnings = {}, []
+    if descriptor["service_type"] != "ImageServer":
+        try:
+            detail = fetch_json(append_rest_path(descriptor["url"], "layers"))
+            detailed = {record["id"]: record for record in arcgis_service_records(detail, descriptor["service_type"])}
+        except Exception:
+            service_entry["metadata_bulk_fallback"] = True
+        for record in records:
+            if record["id"] not in detailed:
+                try:
+                    detail = fetch_json(append_rest_path(descriptor["url"], record["id"]))
+                    if detail.get("id") != record["id"]:
+                        raise ValueError("los metadatos no corresponden al ID de capa solicitado")
+                    detailed[record["id"]] = detail
+                except Exception as exc:
+                    warnings.append(f"{descriptor['url']}/{record['id']}: {exc}")
+    return [service_entry, *arcgis_layer_entries(source, descriptor, metadata, detailed)], warnings
 
 
 def discover_arcgis_services(source):
@@ -165,6 +232,7 @@ def discover_arcgis_services(source):
     visited = set()
     services = {}
     errors = []
+    verified_directories = []
 
     while queue and len(visited) < MAX_DIRECTORIES_PER_SOURCE:
         directory_url = queue.pop(0)
@@ -173,16 +241,18 @@ def discover_arcgis_services(source):
         visited.add(directory_url)
         try:
             data = fetch_json(directory_url)
+            folders, directory_services = arcgis_directory(data)
+            verified_directories.append(directory_url)
         except Exception as exc:
-            errors.append(str(exc))
+            errors.append(f"{directory_url}: {exc}")
             continue
 
-        for folder in data.get("folders", []):
+        for folder in folders:
             child_url = append_rest_path(directory_url, folder)
             if child_url not in visited:
                 queue.append(child_url)
 
-        for service in data.get("services", []):
+        for service in directory_services:
             name = service.get("name")
             service_type = service.get("type")
             if not name or service_type not in {"MapServer", "FeatureServer", "ImageServer"}:
@@ -198,24 +268,31 @@ def discover_arcgis_services(source):
 
     if queue:
         errors.append(f"directory limit reached ({MAX_DIRECTORIES_PER_SOURCE})")
-    return list(services.values()), errors, len(visited)
+    return list(services.values()), errors, len(visited), verified_directories
 
 
 def inventory_arcgis(source):
-    descriptors, errors, directory_count = discover_arcgis_services(source)
-    entries = [arcgis_service_entry(source, descriptor) for descriptor in descriptors]
+    descriptors, errors, directory_count, verified_directories = discover_arcgis_services(source)
+    entries = []
+    verified_services = []
 
     with ThreadPoolExecutor(max_workers=4) as executor:
         future_map = {
-            executor.submit(arcgis_layer_entries, source, descriptor): descriptor
+            executor.submit(inventory_arcgis_service, source, descriptor): descriptor
             for descriptor in descriptors
-            if descriptor["service_type"] != "ImageServer"
         }
         for future in as_completed(future_map):
             try:
-                entries.extend(future.result())
+                service_entries, warnings = future.result()
+                entries.extend(service_entries)
+                errors.extend(warnings)
+                verified_services.append(future_map[future]["url"])
             except Exception as exc:
-                errors.append(str(exc))
+                descriptor = future_map[future]
+                fallback = arcgis_service_entry(source, descriptor)
+                fallback["stale"] = True
+                entries.append(fallback)
+                errors.append(f"{descriptor['url']}: {exc}")
 
     return entries, {
         "institution": source["institution"],
@@ -225,7 +302,10 @@ def inventory_arcgis(source):
         "directories": directory_count,
         "entries": len(entries),
         "status": "ok" if not errors else ("partial" if entries else "error"),
-        "errors": errors[:20],
+        "errors": sorted(set(errors))[:20],
+        "error_count": len(errors),
+        "verified_directories": sorted(verified_directories),
+        "verified_services": sorted(verified_services),
     }
 
 
@@ -334,22 +414,41 @@ def entry_source(entry, sources):
 
 
 def merge_source_refresh(previous, fresh, status, source, all_sources, verified_at):
-    fresh = [dict(entry, source_url=source["url"]) for entry in fresh]
+    previous_check = next((item.get("checked_at") for item in previous.get("sources", [])
+                           if item.get("url") == source["url"] and item.get("checked_at")), previous.get("generated_at"))
+    previous_by_key = {entry_key(entry): entry for entry in previous.get("entries", [])}
+    verified = []
+    for entry in fresh:
+        if entry.get("stale"):
+            old = previous_by_key.get(entry_key(entry), {})
+            entry = dict(old, **entry)
+            entry["last_verified_at"] = old.get("last_verified_at") or (previous_check if old else None)
+            entry["crs_warning"] = bool(old.get("crs_warning")) or bool(entry.get("crs_warning"))
+        else:
+            entry = dict(entry, last_verified_at=verified_at)
+        verified.append(dict(entry, source_url=source["url"]))
+    fresh = verified
     fresh_keys = {entry_key(entry) for entry in fresh}
+    verified_services = set(status.get("verified_services", []))
     retained = []
     if status["status"] != "ok":
         for old in previous.get("entries", []):
             if entry_source(old, all_sources) == source["url"] and entry_key(old) not in fresh_keys:
+                old_url = clean_rest_url(old.get("service_url") or old["url"])
+                if not old.get("service_url") and old_url.rsplit("/", 1)[-1].isdigit():
+                    old_url = old_url.rsplit("/", 1)[0]
+                if old_url in verified_services:
+                    continue
                 entry = {key: value for key, value in old.items() if not key.startswith("_")}
                 entry.update(source_url=source["url"], stale=True,
-                             last_verified_at=old.get("last_verified_at", previous.get("generated_at")))
+                             last_verified_at=old.get("last_verified_at") or previous_check)
                 retained.append(entry)
     status = dict(status, checked_at=verified_at, retained_entries=len(retained),
                   entries=len(fresh) + len(retained))
     return retained + fresh, status
 
 
-def build_catalog(sources=None, previous=None):
+def build_catalog(sources=None, previous=None, verified_at=None):
     sources = list(LIVE_SERVERS if sources is None else sources)
     previous = previous or {}
     selected = {source["url"] for source in sources}
@@ -357,7 +456,7 @@ def build_catalog(sources=None, previous=None):
                for entry in previous.get("entries", [])
                if entry_source(entry, LIVE_SERVERS) not in selected]
     source_status = [status for status in previous.get("sources", []) if status["url"] not in selected]
-    verified_at = datetime.now(timezone.utc).isoformat()
+    verified_at = verified_at or datetime.now(timezone.utc).isoformat()
     with ThreadPoolExecutor(max_workers=4) as executor:
         future_map = {executor.submit(inventory_source, dict(source)): source for source in sources}
         for future in as_completed(future_map):

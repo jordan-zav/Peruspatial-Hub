@@ -10,6 +10,84 @@ from pathlib import Path
 CATALOG_SCHEMA_VERSION = 1
 
 
+def is_psad56_reference(spatial_reference):
+    """Recognize an explicitly declared PSAD56 datum without changing coordinates."""
+    if not isinstance(spatial_reference, dict):
+        return False
+    wkid = spatial_reference.get("latestWkid") or spatial_reference.get("wkid")
+    wkt = str(spatial_reference.get("wkt") or spatial_reference.get("wkt2") or "").casefold()
+    return str(wkid) == "4248" or "psad" in wkt or "provisional_south_american_datum_1956" in wkt
+
+
+def arcgis_data_kind(record):
+    """Describe the published resource separately from its QGIS loading route."""
+    kind = str(record.get("type", "")).casefold().replace(" ", "")
+    if record.get("is_table") or kind == "table":
+        return "tabla"
+    if kind in {"grouplayer", "subtypegrouplayer"} or record.get("subLayerIds") or record.get("subLayers"):
+        return "grupo"
+    if record.get("geometryType") or kind == "featurelayer":
+        return "vectorial"
+    if "raster" in kind or "mosaic" in kind:
+        return "raster"
+    return "mixto"
+
+
+def arcgis_directory(metadata):
+    """Validate directory content before treating it as a complete inventory."""
+    if not isinstance(metadata, dict) or not any(key in metadata for key in ("folders", "services")):
+        raise ValueError("la respuesta no es un directorio ArcGIS REST")
+    folders, services = metadata.get("folders", []), metadata.get("services", [])
+    if not isinstance(folders, list) or not isinstance(services, list):
+        raise ValueError("el directorio ArcGIS no contiene listas válidas de carpetas y servicios")
+    if any(not isinstance(folder, str) or not folder.strip() for folder in folders):
+        raise ValueError("el directorio ArcGIS contiene una carpeta inválida")
+    if any(not isinstance(service, dict) or not isinstance(service.get("name"), str)
+           or not service["name"].strip() or not isinstance(service.get("type"), str) for service in services):
+        raise ValueError("el directorio ArcGIS contiene un servicio inválido")
+    return folders, services
+
+
+def arcgis_service_records(metadata, service_kind):
+    """Validate layer identities and hierarchy before inventory/tree construction."""
+    if not isinstance(metadata, dict):
+        raise ValueError("los metadatos del servicio ArcGIS no son un objeto")
+    if service_kind == "ImageServer":
+        if not any(key in metadata for key in ("pixelType", "bandCount", "serviceDataType")):
+            raise ValueError("la respuesta no contiene metadatos de ImageServer")
+        return []
+    if not any(key in metadata for key in ("layers", "tables")):
+        raise ValueError("el servicio ArcGIS no contiene un inventario de capas o tablas")
+    records = []
+    seen = set()
+    for is_table, key in ((False, "layers"), (True, "tables")):
+        values = metadata.get(key, [])
+        if not isinstance(values, list):
+            raise ValueError("el inventario ArcGIS de capas o tablas no es una lista")
+        for value in values:
+            if not isinstance(value, dict) or type(value.get("id")) is not int or value["id"] < 0:
+                raise ValueError("el inventario ArcGIS contiene un ID de capa inválido")
+            if value["id"] in seen:
+                raise ValueError("el inventario ArcGIS contiene IDs de capa duplicados")
+            seen.add(value["id"])
+            record = dict(value, is_table=is_table or str(value.get("type", "")).casefold() == "table")
+            if "parentLayerId" not in record and isinstance(record.get("parentLayer"), dict):
+                record["parentLayerId"] = record["parentLayer"].get("id", -1)
+            records.append(record)
+    by_id = {record["id"]: record for record in records}
+    checked = set()
+    for record in records:
+        chain = set()
+        current = record["id"]
+        while current in by_id and current not in checked:
+            if current in chain:
+                raise ValueError("el inventario ArcGIS contiene un ciclo entre grupos de capas")
+            chain.add(current)
+            current = by_id[current].get("parentLayerId", -1)
+        checked.update(chain)
+    return records
+
+
 def normalize_search_text(value: object) -> str:
     """Normalize case, accents and whitespace for predictable local search."""
     normalized = unicodedata.normalize("NFKD", str(value or ""))

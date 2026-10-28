@@ -503,6 +503,77 @@ def main():
 
     run_case("multiple_selection_context_actions", multi_context)
 
+    def inventory_metadata_details(c):
+        entry = dict(layer("Metadata fixture"), geometry_type="esriGeometryPolygon", field_count=12,
+                     spatial_reference={"wkid": 102100, "latestWkid": 3857}, metadata_warnings=["duplicate_field_names"])
+        node = fixtures(c.panel, [entry])[0]
+        select(c.panel, [node])
+        text = c.panel.metadata_panel.toPlainText()
+        assert "Polígonos" in text and "12 campos publicados" in text and "3857" in text, text
+        assert "nombres de campos repetidos" in text
+        table = dict(layer("Table fixture"), is_table=True, data_kind="tabla", field_count=4)
+        node = fixtures(c.panel, [table])[0]
+        select(c.panel, [node])
+        assert "Tabla sin geometría" in c.panel.metadata_panel.toPlainText()
+        assert "CRS declarado" not in c.panel.metadata_panel.toPlainText()
+        return "Published schema, CRS identifiers and upstream field warnings are visible without inventing a table CRS"
+
+    run_case("inventory_metadata_details", inventory_metadata_details)
+
+    def invalid_service_inventory(c):
+        entry = dict(layer("Cyclic service"), type="arcgis_service", stype="arcgis_mapserver",
+                     service_kind="MapServer", url="https://example.test/rest/services/Test/MapServer", is_loaded=False)
+        root = fixtures(c.panel, [entry])[0]
+        c.panel.fetch_arcgis_json = lambda *a, **kw: {"layers": [
+            {"id": 1, "name": "A", "parentLayerId": 2}, {"id": 2, "name": "B", "parentLayerId": 1}]}
+        c.panel.load_dynamic_node(root)
+        wait_until(lambda: not c.panel._background_tasks)
+        assert not root.data(0, Qt.ItemDataRole.UserRole)["is_loaded"]
+        assert root.childCount() == 1 and "ciclo" in root.child(0).text(0)
+        return "Cyclic service hierarchy produces a retryable error instead of recursively constructing Qt nodes"
+
+    run_case("invalid_service_inventory", invalid_service_inventory)
+
+    def obsolete_group_id(c):
+        entry = dict(layer("Old cached name"), type="arcgis_map_layer", service_kind="MapServer", layer_id=6)
+        c.panel.fetch_arcgis_json = lambda *a, **kw: {"id": 6, "name": "New group", "type": "Group Layer"}
+        constructed = []
+        c.panel.create_arcgis_map_layer = lambda *a, **kw: constructed.append("raster")
+        result, errors = c.panel._instantiate_layer(entry)
+        assert result is None and not constructed and any("grupo" in error for error in errors)
+        c.panel.fetch_arcgis_json = lambda *a, **kw: {"id": 6, "name": "Table", "type": "Table", "fields": []}
+        c.panel.create_arcgis_vector_layer = lambda *a, **kw: QgsVectorLayer("None?field=id:integer", "Table", "memory")
+        result, errors = c.panel._instantiate_layer(entry)
+        assert result.isValid() and not result.isSpatial() and not constructed
+        return "An outdated cached layer ID cannot render a repurposed group; published tables use the vector provider"
+
+    run_case("obsolete_group_id_and_table_routing", obsolete_group_id)
+
+    def published_crs(c):
+        from qgis.core import QgsCoordinateReferenceSystem
+        target = QgsCoordinateReferenceSystem("EPSG:32718")
+        memory = QgsVectorLayer("Point", "Custom CRS", "memory")
+        memory.setCrs(QgsCoordinateReferenceSystem())
+        c.panel.apply_metadata_crs(memory, {"spatialReference": {"wkt": target.toWkt()}})
+        assert memory.crs() == target
+        original = QgsCoordinateReferenceSystem("EPSG:4326")
+        memory.setCrs(original)
+        c.panel.apply_metadata_crs(memory, {"spatialReference": {"wkt": target.toWkt()}})
+        assert memory.crs() == original, "A valid provider CRS must never be relabelled"
+        service = dict(layer("PSAD56 fixture"), type="arcgis_service", stype="arcgis_mapserver",
+                       service_kind="MapServer", is_loaded=True, crs_warning=False)
+        root = fixtures(c.panel, [service])[0]
+        c.panel.populate_arcgis_service_layers(root, service, {"spatialReference": {"wkid": 4248},
+            "layers": [{"id": 0, "name": "Declared vector", "type": "Feature Layer", "parentLayerId": -1}]})
+        root.setExpanded(True)
+        leaf = root.child(0)
+        assert leaf.text(1) == "Vectorial REST"
+        select(c.panel, [leaf])
+        assert c.panel.crs_banner.isVisible()
+        return "Declared WKT recovers a missing CRS; valid CRS stays intact; explicit PSAD56 gets the datum notice"
+
+    run_case("published_crs_wkt_and_datum_warning", published_crs)
+
     def network_policy(c):
         from qgis.core import Qgis, QgsNetworkAccessManager
         from qgis.PyQt.QtCore import QUrl

@@ -44,6 +44,10 @@ from .peruspatial_hub_catalog import (
     load_catalog,
     normalize_search_text as _normalize_catalog_text,
     search_catalog,
+    arcgis_directory,
+    arcgis_service_records,
+    arcgis_data_kind,
+    is_psad56_reference,
 )
 from .peruspatial_hub_sources import (
     ACTIVE_REST_ROOTS,
@@ -748,8 +752,7 @@ class PeruSpatialHubPanel(QDockWidget):
                             attempts=1,
                             authcfg=auth_configs[server["url"]],
                         )
-                        if not ("folders" in metadata or "services" in metadata):
-                            raise RuntimeError("La respuesta no es un directorio ArcGIS REST")
+                        arcgis_directory(metadata)
                     else:
                         payload = self.read_service_https(
                             _wms_capabilities_url(server["url"]),
@@ -1375,11 +1378,12 @@ class PeruSpatialHubPanel(QDockWidget):
 
                 result_kind, payload = result
                 if result_kind == "arcgis_directory":
+                    folders, directory_services = arcgis_directory(payload)
                     inst = node_data["institution"]
                     cat = node_data["category"]
 
                     # Folders
-                    for f in payload.get("folders", []):
+                    for f in folders:
                         folder_name = f
                         furl = _append_rest_path(url, folder_name)
 
@@ -1401,7 +1405,7 @@ class PeruSpatialHubPanel(QDockWidget):
                         dummy.setText(0, "Expandir para explorar...")
 
                     # Services
-                    for s in payload.get("services", []):
+                    for s in directory_services:
                         sname = s.get("name")
                         stype_str = s.get("type")
                         if not sname or stype_str not in (
@@ -1543,18 +1547,12 @@ class PeruSpatialHubPanel(QDockWidget):
     def populate_arcgis_service_layers(self, service_item, service_data, metadata):
         """Create importable leaf nodes for a MapServer or FeatureServer."""
         service_url = _clean_rest_url(service_data["url"])
+        service_reference = metadata.get("spatialReference") or (metadata.get("fullExtent") or {}).get("spatialReference")
+        service_data["crs_warning"] = bool(service_data.get("crs_warning")) or is_psad56_reference(service_reference)
         service_kind = service_data.get("service_kind") or self.service_kind_from_url(
             service_url, service_data.get("stype")
         )
-        entries = []
-        for layer_info in metadata.get("layers", []):
-            entry = dict(layer_info)
-            entry["is_table"] = False
-            entries.append(entry)
-        for table_info in metadata.get("tables", []):
-            entry = dict(table_info)
-            entry["is_table"] = True
-            entries.append(entry)
+        entries = arcgis_service_records(metadata, service_kind)
 
         if not entries:
             raise RuntimeError("el servicio REST no publicó capas ni tablas importables")
@@ -1573,8 +1571,8 @@ class PeruSpatialHubPanel(QDockWidget):
                 parent_item = create_entry(by_id[parent_id])
 
             layer_name = entry.get("name") or f"Capa {layer_id}"
-            sublayer_ids = entry.get("subLayerIds")
-            is_group = entry.get("type") == "Group Layer" or bool(sublayer_ids)
+            data_kind = arcgis_data_kind(entry)
+            is_group = data_kind == "grupo"
             tree_item = QTreeWidgetItem(parent_item)
             tree_item.setText(0, layer_name)
 
@@ -1591,14 +1589,6 @@ class PeruSpatialHubPanel(QDockWidget):
                     "description": "Grupo de subcapas del servicio ArcGIS REST.",
                 })
             else:
-                layer_type_name = str(entry.get("type", "")).casefold()
-                has_geometry = bool(entry.get("geometryType"))
-                is_vector = (
-                    service_kind == "FeatureServer"
-                    or entry.get("is_table", False)
-                    or has_geometry
-                )
-                is_raster = "raster" in layer_type_name or "mosaic" in layer_type_name
                 # MapServer vector sublayers keep the map-layer implementation so
                 # importing can fall back to the rendered raster endpoint if needed.
                 leaf_type = (
@@ -1607,15 +1597,8 @@ class PeruSpatialHubPanel(QDockWidget):
                     else "arcgis_map_layer"
                 )
                 layer_url = _append_rest_path(service_url, layer_id)
-                if is_vector:
-                    display_type = "Vectorial REST"
-                    data_kind = "vectorial"
-                elif is_raster:
-                    display_type = "Raster REST"
-                    data_kind = "raster"
-                else:
-                    display_type = "Raster/Vectorial REST"
-                    data_kind = "mixto"
+                display_type = {"tabla": "Tabla REST", "vectorial": "Vectorial REST",
+                                "raster": "Raster REST", "mixto": "Raster/Vectorial REST"}[data_kind]
                 tree_item.setText(1, display_type)
                 tree_item.setData(0, Qt.ItemDataRole.UserRole, {
                     "type": leaf_type,
@@ -1629,7 +1612,8 @@ class PeruSpatialHubPanel(QDockWidget):
                     "institution": service_data["institution"],
                     "category": service_data["category"],
                     "description": f"Capa {layer_id} del servicio ArcGIS REST {service_kind}.",
-                    "crs_warning": service_data.get("crs_warning", False),
+                    "crs_warning": service_data.get("crs_warning", False) or is_psad56_reference(
+                        entry.get("spatialReference") or (entry.get("extent") or {}).get("spatialReference")),
                 })
             created[layer_id] = tree_item
             return tree_item
@@ -1696,10 +1680,28 @@ class PeruSpatialHubPanel(QDockWidget):
             tags = ", ".join(str(tag) for tag in s.get("tags", []))
             details = f"<p>{escape(str(description))}</p>" if description else ""
             tags_html = f"<p>Etiquetas: {escape(tags)}</p>" if tags else ""
+            metadata_facts = []
+            if s.get("is_table") or s.get("data_kind") == "tabla":
+                metadata_facts.append("Tabla sin geometría")
+            elif s.get("geometry_type"):
+                geometry = {"esriGeometryPoint": "Puntos", "esriGeometryMultipoint": "Multipuntos",
+                            "esriGeometryPolyline": "Líneas", "esriGeometryPolygon": "Polígonos"}.get(
+                                s["geometry_type"], str(s["geometry_type"]))
+                metadata_facts.append(geometry)
+            if type(s.get("field_count")) is int:
+                metadata_facts.append(f"{s['field_count']} campos publicados")
+            spatial_reference = s.get("spatial_reference") or {}
+            if isinstance(spatial_reference, dict):
+                wkid = spatial_reference.get("latestWkid") or spatial_reference.get("wkid")
+                if wkid:
+                    metadata_facts.append(f"CRS declarado (WKID): {wkid}")
+            facts_html = f"<p>{escape(' · '.join(metadata_facts))}</p>" if metadata_facts else ""
+            warnings_html = ("<p><b>Revisar atributos.</b> La fuente publica nombres de campos repetidos.</p>"
+                             if "duplicate_field_names" in (s.get("metadata_warnings") or []) else "")
             self.metadata_panel.setHtml(
                 f"<h3>{name}</h3><p>{institution}</p>"
                 f"<p>{category} · {escape(str(kind))}</p>"
-                f"{details}<p><a href='{href}'>{host}</a></p>{tags_html}"
+                f"{details}{facts_html}{warnings_html}<p><a href='{href}'>{host}</a></p>{tags_html}"
             )
             self.metadata_panel.setToolTip(url)
             self.btn_add_layer.setEnabled(not is_container)
@@ -1737,11 +1739,17 @@ class PeruSpatialHubPanel(QDockWidget):
         extent = metadata.get("extent") or metadata.get("fullExtent") or {}
         spatial_ref = metadata.get("spatialReference") or extent.get("spatialReference") or {}
         wkid = spatial_ref.get("latestWkid") or spatial_ref.get("wkid")
-        if not wkid:
-            return
-        crs = QgsCoordinateReferenceSystem.fromEpsgId(int(wkid))
-        if not crs.isValid():
-            crs = QgsCoordinateReferenceSystem(f"ESRI:{wkid}")
+        crs = QgsCoordinateReferenceSystem()
+        if wkid:
+            try:
+                crs = QgsCoordinateReferenceSystem.fromEpsgId(int(wkid))
+                if not crs.isValid():
+                    crs = QgsCoordinateReferenceSystem(f"ESRI:{wkid}")
+            except (TypeError, ValueError, OverflowError):
+                pass
+        wkt = spatial_ref.get("wkt") or spatial_ref.get("wkt2")
+        if not crs.isValid() and isinstance(wkt, str) and wkt:
+            crs = QgsCoordinateReferenceSystem.fromWkt(wkt)
         if crs.isValid():
             layer.setCrs(crs)
 
@@ -1822,6 +1830,16 @@ class PeruSpatialHubPanel(QDockWidget):
                     metadata = self.fetch_arcgis_json(s["url"], timeout=12)
                 except Exception as exc:
                     attempts.append(f"Metadatos REST: {exc}")
+
+                published_kind = arcgis_data_kind(metadata)
+                if published_kind == "grupo":
+                    attempts.append("Este ID corresponde ahora a un grupo de capas. Expanda el servicio y seleccione una subcapa actualizada.")
+                    return None, attempts
+                if published_kind == "tabla":
+                    layer = self.create_arcgis_vector_layer(s["url"], name, metadata)
+                    if not layer.isValid():
+                        attempts.append(f"Tabla REST: {self.provider_error(layer)}")
+                    return layer, attempts
 
                 geometry_type = metadata.get("geometryType")
                 layer_kind = str(metadata.get("type", "")).lower()

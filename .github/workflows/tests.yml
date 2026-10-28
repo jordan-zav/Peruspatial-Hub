@@ -76,6 +76,9 @@ jobs:
       - name: Install and exercise plugin inside QGIS desktop
         run: xvfb-run -a /usr/bin/python3 scripts/qgis_desktop_checks.py --qgis-bin /usr/bin/qgis --qt-platform xcb --plugin-root qa-installed/peruspatial_hub --install --output qa-output/desktop
 
+      - name: Validate inventoried CRS metadata with QGIS
+        run: xvfb-run -a /usr/bin/python3 scripts/qgis_inventory_checks.py --catalog qa-installed/peruspatial_hub/catalog/catalog.json --output qa-output/inventory > qa-output/inventory-console.log 2>&1
+
       - name: Upload interface reports and screenshots
         if: always()
         uses: actions/upload-artifact@v4

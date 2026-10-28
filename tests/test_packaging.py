@@ -11,3 +11,4 @@ def test_archive_contains_runtime_parser_catalog_and_bilingual_docs(tmp_path):
         assert set(bundle.namelist()) == {f"peruspatial_hub/{path}" for path in PLUGIN_FILES}
         for path in ("peruspatial_hub_ogc.py", "peruspatial_hub_connections.py", "peruspatial_hub_network.py", "README.es.md", "docs/AUDIT_20261028.md"):
             assert bundle.read(f"peruspatial_hub/{path}")
+        assert bundle.read("peruspatial_hub/docs/INVENTORY_AUDIT_20261028.md")
