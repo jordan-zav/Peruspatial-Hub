@@ -1,9 +1,11 @@
 from urllib.parse import parse_qs, urlsplit
+import pytest
 
 from peruspatial_hub_urls import (
     append_rest_path,
     clean_rest_url,
     favorite_identity,
+    requires_http1,
     service_url,
     url_with_json,
     wms_capabilities_url,
@@ -66,3 +68,16 @@ def test_favorites_deduplicate_rest_aliases_without_merging_different_layers():
     entry = {"type": "arcgis_vector_layer", "name": "Original", "url": "https://example.test/rest/FeatureServer/0"}
     assert favorite_identity(entry) == favorite_identity(dict(entry, name="Alias", layer_id=0))
     assert favorite_identity(entry) != favorite_identity(dict(entry, url="https://example.test/rest/FeatureServer/1"))
+
+
+@pytest.mark.parametrize("url,expected", [
+    ("https://idesep.senamhi.gob.pe/geoserver/g_06_13/wms", True),
+    ("https://IDESEP.SENAMHI.GOB.PE/geoserver/g_05_01/wms?request=GetMap", True),
+    ("https://idesep.senamhi.gob.pe/other/service", False),
+    ("https://idesep.senamhi.gob.pe/geoserver-elsewhere/wms", False),
+    ("https://idesep.senamhi.gob.pe.example.test/geoserver/wms", False),
+    ("https://example.test/geoserver/wms", False),
+    ("http://idesep.senamhi.gob.pe/geoserver/wms", False),
+])
+def test_http1_compatibility_is_scoped_to_senamhi_geoserver(url, expected):
+    assert requires_http1(url) is expected

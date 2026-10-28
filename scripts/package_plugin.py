@@ -18,6 +18,7 @@ PLUGIN_FILES = (
     "peruspatial_hub_panel.py",
     "peruspatial_hub_urls.py",
     "peruspatial_hub_connections.py",
+    "peruspatial_hub_network.py",
     "peruspatial_hub_ogc.py",
     "peruspatial_hub_catalog.py",
     "peruspatial_hub_sources.py",

@@ -70,3 +70,10 @@ def favorite_identity(entry):
     if is_wms:
         return "wms", wms_service_url(url), entry.get("layer_name", "")
     return "rest", clean_rest_url(entry.get("url", ""))
+
+
+def requires_http1(url):
+    """Restrict the Qt/GeoServer HTTP/2 compatibility rule to this public host."""
+    parts = urllib.parse.urlsplit(url)
+    return (parts.scheme.casefold() == "https" and parts.hostname == "idesep.senamhi.gob.pe"
+            and parts.path.startswith("/geoserver/"))

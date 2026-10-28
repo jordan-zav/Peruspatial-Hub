@@ -15,6 +15,7 @@ from qgis.core import QgsSettings
 
 # Import our panel
 from .peruspatial_hub_panel import PeruSpatialHubPanel
+from .peruspatial_hub_network import NetworkCompatibility
 
 class PeruSpatialHub(object):
     """QGIS Plugin Implementation."""
@@ -29,6 +30,7 @@ class PeruSpatialHub(object):
         self.plugin_dir = os.path.dirname(__file__)
         self.action = None
         self.dock_widget = None
+        self.network_compatibility = NetworkCompatibility()
 
     def tr(self, message):
         """Get the translation for a string using Qt translation API."""
@@ -36,6 +38,7 @@ class PeruSpatialHub(object):
 
     def initGui(self):
         """Create the menu entries and toolbar icons of the plugin."""
+        self.network_compatibility.install()
         icon_path = os.path.join(self.plugin_dir, "logo_solo.png")
         icon = QIcon(icon_path)
         if icon.isNull():
@@ -65,6 +68,7 @@ class PeruSpatialHub(object):
 
     def unload(self):
         """Removes the plugin menu items and icon from QGIS GUI."""
+        self.network_compatibility.uninstall()
         if self.action:
             self.iface.removeToolBarIcon(self.action)
             self.iface.removePluginMenu("PeruSpatial Hub", self.action)

@@ -38,6 +38,7 @@ from .peruspatial_hub_urls import (
     favorite_identity,
 )
 from .peruspatial_hub_connections import register_connection, connection_root
+from .peruspatial_hub_network import prepare_request
 from .peruspatial_hub_ogc import merge_crs, parse_wms_layer_catalog
 from .peruspatial_hub_catalog import (
     load_catalog,
@@ -945,6 +946,7 @@ class PeruSpatialHubPanel(QDockWidget):
             raise ValueError("solo se permiten servicios HTTPS con un host válido")
 
         request = QNetworkRequest(QUrl(url))
+        prepare_request(request)
         for name, value in (headers or {}).items():
             request.setRawHeader(str(name).encode("ascii"), str(value).encode("utf-8"))
         if hasattr(request, "setTransferTimeout"):

@@ -57,8 +57,10 @@ def main():
         addToolBarIcon=lambda *a: None, removeToolBarIcon=lambda *a: None,
         addDockWidget=lambda area, dock: window.addDockWidget(area, dock),
         removeDockWidget=lambda dock: window.removeDockWidget(dock))
-    panel = ui.PeruSpatialHubPanel(iface, window, str(plugin_root))
-    window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, panel)
+    plugin = package.classFactory(iface)
+    plugin.initGui()
+    plugin.run()
+    panel = plugin.dock_widget
     window.resize(1050, 950)
     window.show()
     app.processEvents()
@@ -206,9 +208,6 @@ def main():
     panel.cancel_background_tasks()
     assert panel._shutting_down
     checks.append({"check": "Unload cancels pending work", "passed": True})
-    plugin = package.classFactory(iface)
-    plugin.initGui()
-    plugin.run()
     assert plugin.dock_widget is not None and plugin.action is not None
     plugin.unload()
     assert plugin.dock_widget is None and plugin.action is None
@@ -218,7 +217,6 @@ def main():
     print(json.dumps(checks, indent=2), flush=True)
     QgsProject.instance().removeAllMapLayers()
     window.close()
-    panel.deleteLater()
     window.deleteLater()
     app.processEvents()
     # QGIS owns providers and QObject lifetimes until process exit.

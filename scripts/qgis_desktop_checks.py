@@ -67,6 +67,7 @@ def desktop_checks():
         plugin.action.trigger()
         panel = plugin.dock_widget
         assert panel and panel.isVisible()
+        assert plugin.network_compatibility.processor_id is not None
         original_panel = panel
         plugin.action.trigger()
         assert plugin.dock_widget is original_panel
@@ -134,6 +135,7 @@ def desktop_checks():
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         assert sip.isdeleted(panel)
         assert plugin.dock_widget is None and plugin.action is None
+        assert plugin.network_compatibility.processor_id is None
         record("desktop_unload", "Plugin dock and action are removed from the real interface")
         if managed:
             assert utils.loadPlugin("peruspatial_hub") and utils.startPlugin("peruspatial_hub")

@@ -498,6 +498,41 @@ def main():
 
     run_case("multiple_selection_context_actions", multi_context)
 
+    def network_policy(c):
+        from qgis.core import QgsNetworkAccessManager
+        from qgis.PyQt.QtCore import QUrl
+        from qgis.PyQt.QtNetwork import QNetworkRequest
+        from peru_ui_checks.peruspatial_hub_network import NetworkCompatibility, prepare_request
+        url = "https://idesep.senamhi.gob.pe/geoserver/g_06_13/wms"
+        def request(target=url):
+            value = QNetworkRequest(QUrl(target))
+            value.setAttribute(QNetworkRequest.Attribute.Http2AllowedAttribute, True)
+            return value
+        guard = NetworkCompatibility()
+        try:
+            guard.install()
+            installed_id = guard.processor_id
+            guard.install()
+            assert guard.processor_id == installed_id
+            matched = request()
+            QgsNetworkAccessManager.instance().preprocessRequest(matched)
+            assert matched.attribute(QNetworkRequest.Attribute.Http2AllowedAttribute) is False
+            other = request("https://example.test/geoserver/wms")
+            QgsNetworkAccessManager.instance().preprocessRequest(other)
+            assert other.attribute(QNetworkRequest.Attribute.Http2AllowedAttribute) is True
+            direct = request()
+            prepare_request(direct)
+            assert direct.attribute(QNetworkRequest.Attribute.Http2AllowedAttribute) is False
+        finally:
+            guard.uninstall()
+        guard.uninstall()
+        restored = request()
+        QgsNetworkAccessManager.instance().preprocessRequest(restored)
+        assert restored.attribute(QNetworkRequest.Attribute.Http2AllowedAttribute) is True
+        return "SENAMHI uses HTTP/1.1; other hosts and the network hook after unload are unaffected"
+
+    run_case("network_compatibility_scope_and_lifecycle", network_policy)
+
     def dialogs(c):
         for dialog in (ui.AboutDialog(c.window, str(args.plugin_root)),
                        ui.ServiceStatusDialog(c.window, c.panel.catalog_data),
