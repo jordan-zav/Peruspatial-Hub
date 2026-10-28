@@ -123,7 +123,9 @@ El botón de información de la interfaz mantiene este diagnóstico visible dent
 
 ## Instalación Manual
 
-Dado que el plugin está en desarrollo activo, puede instalarlo manualmente siguiendo estos pasos:
+Para instalar la versión publicada, descargue el ZIP de la [última release](https://github.com/jordan-zav/Peruspatial-Hub/releases/latest) y abra **Complementos → Administrar e instalar complementos → Instalar a partir de ZIP** en QGIS. Active PeruSpatial Hub y abra su panel desde el menú o el icono de la barra.
+
+También puede instalar manualmente una carpeta extraída del ZIP:
 
 1. Localice la carpeta de plugins de su perfil de QGIS. Normalmente se encuentra en:
    * **Windows**: C:\Users\TuUsuario\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins\
@@ -164,7 +166,7 @@ El empaquetador crea un ZIP con la carpeta <code>peruspatial_hub</code> requerid
 
 ## Estado del proyecto
 
-La fuente 1.3.0 se encuentra en desarrollo activo. El catálogo local y las
+La fuente 1.4.0 se encuentra en revisión continua. El catálogo local y las
 funciones puras tienen pruebas automatizadas; antes de cada release también se
 deben verificar el ZIP, la carga del complemento y una muestra de servicios en
 QGIS. Que un endpoint responda no garantiza que todas sus subcapas, metadatos o

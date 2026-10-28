@@ -3,6 +3,7 @@ from urllib.parse import parse_qs, urlsplit
 from peruspatial_hub_urls import (
     append_rest_path,
     clean_rest_url,
+    favorite_identity,
     service_url,
     url_with_json,
     wms_capabilities_url,
@@ -52,3 +53,16 @@ def test_wms_kvp_keys_are_case_insensitive():
 
 def test_wms_service_keeps_vendor_map_but_removes_request_specific_parameters():
     assert wms_service_url("https://example.test/wms?map=peru&SERVICE=WMS&request=GetMap&BBOX=0,0,1,1") == "https://example.test/wms?map=peru"
+
+
+def test_favorites_distinguish_named_wms_layers_and_vendor_maps():
+    entry = {"type": "wms_layer", "name": "Same title", "url": "https://example.test/wms?map=peru", "layer_name": "one"}
+    assert favorite_identity(entry) != favorite_identity(dict(entry, layer_name="two"))
+    assert favorite_identity(entry) != favorite_identity(dict(entry, url="https://example.test/wms?map=world"))
+    assert favorite_identity(entry) == favorite_identity(dict(entry, name="Renamed"))
+
+
+def test_favorites_deduplicate_rest_aliases_without_merging_different_layers():
+    entry = {"type": "arcgis_vector_layer", "name": "Original", "url": "https://example.test/rest/FeatureServer/0"}
+    assert favorite_identity(entry) == favorite_identity(dict(entry, name="Alias", layer_id=0))
+    assert favorite_identity(entry) != favorite_identity(dict(entry, url="https://example.test/rest/FeatureServer/1"))

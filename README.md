@@ -37,7 +37,7 @@ ZIP, which may lag behind the source version.
 
 ## Fast local search
 
-The bundled inventory contains over 8,000 official services and layers. Typing
+The bundled inventory contains over 12,000 official services and layers. Typing
 filters this local file with a short debounce and at most 200 visible results.
 **Search does not send HTTP requests.** Live requests occur only when you
 explicitly expand a server/service or add a layer.

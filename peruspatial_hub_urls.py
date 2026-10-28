@@ -61,3 +61,12 @@ def wms_service_url(url: str) -> str:
              if key.casefold() not in protocol_keys]
     return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path,
                                    urllib.parse.urlencode(query), ""))
+
+
+def favorite_identity(entry):
+    """Identify the resource independently of the translated/display title."""
+    is_wms = entry.get("stype") == "wms" or entry.get("type") in {"wms_layer", "wms_group", "ogc_service"}
+    url = entry.get("service_url") or entry.get("url", "")
+    if is_wms:
+        return "wms", wms_service_url(url), entry.get("layer_name", "")
+    return "rest", clean_rest_url(entry.get("url", ""))

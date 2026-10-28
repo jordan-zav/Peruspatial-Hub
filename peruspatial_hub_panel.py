@@ -10,6 +10,7 @@ import urllib.parse
 import json
 import time
 from html import escape
+from qgis.PyQt import sip
 
 from qgis.PyQt.QtCore import Qt, QTimer, QUrl
 from qgis.PyQt.QtNetwork import QNetworkReply, QNetworkRequest
@@ -34,7 +35,9 @@ from .peruspatial_hub_urls import (
     url_with_json as _url_with_json,
     wms_capabilities_url as _wms_capabilities_url,
     wms_service_url as _wms_service_url,
+    favorite_identity,
 )
+from .peruspatial_hub_connections import register_connection, connection_root
 from .peruspatial_hub_ogc import merge_crs, parse_wms_layer_catalog
 from .peruspatial_hub_catalog import (
     load_catalog,
@@ -225,6 +228,11 @@ class PeruSpatialHubPanel(QDockWidget):
         self.plugin_dir = plugin_dir
         self._background_tasks = set()
         self._shutting_down = False
+        self._loading_layers = False
+        self._filtering_tree = False
+        self._health_check_running = False
+        self._health_progress = 0
+        self._layer_progress = (0, 0, "")
         self.auth_scopes = self.load_auth_scopes()
         self.setWindowTitle("PeruSpatial Hub")
         self.setAllowedAreas(
@@ -477,6 +485,30 @@ class PeruSpatialHubPanel(QDockWidget):
         grid.setColumnStretch(0, 1)
         grid.addWidget(self.progress_bar, 2, 0, 1, 2)
 
+    def _ui_available(self):
+        return not self._shutting_down and not sip.isdeleted(self)
+
+    def _update_progress(self):
+        if not self._ui_available():
+            return
+        if self._loading_layers:
+            value, total, text = self._layer_progress
+            self.progress_bar.setRange(0, total)
+            self.progress_bar.setValue(value)
+            self.progress_bar.setFormat(text)
+            self.progress_bar.setVisible(True)
+        elif self._health_check_running:
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(self._health_progress)
+            self.progress_bar.setFormat("Verificando servidores en segundo plano… %p%")
+            self.progress_bar.setVisible(True)
+        else:
+            self.progress_bar.setVisible(False)
+
+    def _on_health_progress(self, value):
+        self._health_progress = int(value)
+        self._update_progress()
+
     def show_about_dialog(self):
         """Opens the About dialog with developer information and links."""
         dialog = AboutDialog(self, self.plugin_dir)
@@ -503,6 +535,11 @@ class PeruSpatialHubPanel(QDockWidget):
         if data is None:
             return
 
+        if not item.isSelected():
+            self.tree_widget.clearSelection()
+            self.tree_widget.setCurrentItem(item)
+            item.setSelected(True)
+        single_selection = len(self.tree_widget.selectedItems()) == 1
         menu = QMenu(self)
         ntype = data.get("type", "")
 
@@ -512,9 +549,9 @@ class PeruSpatialHubPanel(QDockWidget):
                 menu.addAction("Actualizar contenido", lambda: self.refresh_node(item))
             menu.addSeparator()
             if ntype != "arcgis_group":
-                menu.addAction("Registrar conexión", self.register_selected_connection)
-            menu.addAction("Copiar URL", self.copy_selected_url)
-            menu.addAction("Abrir en navegador", self.open_selected_web)
+                menu.addAction("Registrar conexión", self.register_selected_connection).setEnabled(single_selection)
+            menu.addAction("Copiar URL", self.copy_selected_url).setEnabled(single_selection)
+            menu.addAction("Abrir en navegador", self.open_selected_web).setEnabled(single_selection)
         elif ntype in self.LAYER_TYPES:
             selected = self.tree_widget.selectedItems()
             if len(selected) > 1:
@@ -522,12 +559,13 @@ class PeruSpatialHubPanel(QDockWidget):
                     1 for it in selected
                     if (it.data(0, Qt.ItemDataRole.UserRole) or {}).get("type") in self.LAYER_TYPES
                 )
-                menu.addAction(f"Añadir {layer_count} capas al Mapa", self.add_selected_layer)
+                menu.addAction(f"Añadir {layer_count} capas al Mapa", self.add_selected_layer).setEnabled(
+                    layer_count > 0 and not self._loading_layers)
             else:
-                menu.addAction("Añadir al mapa", self.add_selected_layer)
+                menu.addAction("Añadir al mapa", self.add_selected_layer).setEnabled(not self._loading_layers)
             menu.addSeparator()
-            menu.addAction("Copiar URL", self.copy_selected_url)
-            menu.addAction("Abrir en navegador", self.open_selected_web)
+            menu.addAction("Copiar URL", self.copy_selected_url).setEnabled(single_selection)
+            menu.addAction("Abrir en navegador", self.open_selected_web).setEnabled(single_selection)
             menu.addSeparator()
             if self._is_favorite(data):
                 menu.addAction("Quitar de favoritos", lambda: self.remove_from_favorites(item))
@@ -536,7 +574,7 @@ class PeruSpatialHubPanel(QDockWidget):
 
         if self.normalize_auth_scope(data.get("service_url") or data.get("url", "")):
             menu.addSeparator()
-            menu.addAction("Configurar acceso privado", self.configure_selected_service_access)
+            menu.addAction("Configurar acceso privado", self.configure_selected_service_access).setEnabled(single_selection)
 
         if menu.actions():
             menu.exec(self.tree_widget.viewport().mapToGlobal(position))
@@ -570,7 +608,7 @@ class PeruSpatialHubPanel(QDockWidget):
 
     def _favorite_key(self, data):
         """Return a stable identifier for a favorite entry."""
-        return (data.get("url", "") or "") + "|" + (data.get("name", "") or "")
+        return favorite_identity(data)
 
     def _is_favorite(self, data):
         """Check whether a node is already bookmarked."""
@@ -670,10 +708,11 @@ class PeruSpatialHubPanel(QDockWidget):
 
     def check_all_servers_health(self):
         """Test every live server without blocking QGIS' interface thread."""
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
-        self.progress_bar.setFormat("Verificando servidores en segundo plano...")
+        if not self._ui_available() or self._health_check_running:
+            return
+        self._health_check_running = True
+        self._health_progress = 0
+        self._update_progress()
         self.btn_health_check.setEnabled(False)
         servers = [dict(server) for server in self.live_servers]
         auth_configs = {
@@ -722,7 +761,8 @@ class PeruSpatialHubPanel(QDockWidget):
                 self._background_tasks.discard(task)
             if self._shutting_down:
                 return
-            self.progress_bar.setVisible(False)
+            self._health_check_running = False
+            self._update_progress()
             self.btn_health_check.setEnabled(True)
             if exception is not None:
                 QMessageBox.warning(self, "Error de verificación", str(exception))
@@ -737,10 +777,7 @@ class PeruSpatialHubPanel(QDockWidget):
             on_finished=finished,
         )
         task_holder["task"] = task
-        task.progressChanged.connect(
-            lambda value: self.progress_bar.setValue(int(value))
-            if not self._shutting_down else None
-        )
+        task.progressChanged.connect(self._on_health_progress)
         self._background_tasks.add(task)
         QgsApplication.taskManager().addTask(task)
 
@@ -807,7 +844,7 @@ class PeruSpatialHubPanel(QDockWidget):
         return {
             cls.normalize_auth_scope(scope): str(authcfg).strip()
             for scope, authcfg in scopes.items()
-            if cls.normalize_auth_scope(scope) and str(authcfg).strip()
+            if cls.normalize_auth_scope(scope) and isinstance(authcfg, str) and authcfg.strip()
         }
 
     def save_auth_scopes(self):
@@ -820,8 +857,8 @@ class PeruSpatialHubPanel(QDockWidget):
         else:
             settings.remove(self.AUTH_SCOPES_SETTINGS_KEY)
 
-    def auth_config_for_url(self, url):
-        """Return the auth config for the most specific matching service scope."""
+    def auth_scope_for_url(self, url):
+        """Return the most specific configuration or explicit anonymous marker."""
         target = urllib.parse.urlsplit(self.normalize_auth_scope(url))
         if not target.hostname:
             return ""
@@ -839,7 +876,10 @@ class PeruSpatialHubPanel(QDockWidget):
             )
             if path_matches:
                 matches.append((len(candidate_path), authcfg))
-        matched_authcfg = max(matches, default=(0, ""))[1]
+        return max(matches, default=(0, ""))[1]
+
+    def auth_config_for_url(self, url):
+        matched_authcfg = self.auth_scope_for_url(url)
         return "" if matched_authcfg == self.NO_AUTH_SCOPE else matched_authcfg
 
     @staticmethod
@@ -853,7 +893,7 @@ class PeruSpatialHubPanel(QDockWidget):
 
     def configure_selected_service_access(self):
         selected_items = self.tree_widget.selectedItems()
-        if not selected_items:
+        if len(selected_items) != 1:
             return
         service = selected_items[0].data(0, Qt.ItemDataRole.UserRole) or {}
         service_url = service.get("service_url") or service.get("url")
@@ -1083,6 +1123,12 @@ class PeruSpatialHubPanel(QDockWidget):
             item.setHidden(not visible)
             return visible
 
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data is None and item.parent() is not None and not item.childCount():
+            # Loading/error/expand hints belong to their parent; they are not
+            # independent search matches and must not bypass category filters.
+            item.setHidden(False)
+            return False
         own_match = self.item_matches_search(item, search_text, selected_category)
         descendant_match = False
 
@@ -1103,10 +1149,14 @@ class PeruSpatialHubPanel(QDockWidget):
         search_text = self.normalize_search_text(self.search_input.text().strip())
         selected_category = self.category_combo.currentText()
 
-        for i in range(self.tree_widget.topLevelItemCount()):
-            self.filter_tree_item(
-                self.tree_widget.topLevelItem(i), search_text, selected_category
-            )
+        self._filtering_tree = True
+        try:
+            for i in range(self.tree_widget.topLevelItemCount()):
+                self.filter_tree_item(
+                    self.tree_widget.topLevelItem(i), search_text, selected_category
+                )
+        finally:
+            self._filtering_tree = False
 
     def populate_catalog_results(self, search_text, selected_category):
         """Rebuild the lightweight result branch from the bundled inventory."""
@@ -1164,7 +1214,7 @@ class PeruSpatialHubPanel(QDockWidget):
 
     def apply_catalog_search(self):
         """Apply a fully local search; this method never performs network I/O."""
-        if not hasattr(self, "search_results_root"):
+        if self._shutting_down or sip.isdeleted(self) or not hasattr(self, "search_results_root"):
             return
         search_text = self.normalize_search_text(self.search_input.text().strip())
         selected_category = self.category_combo.currentText()
@@ -1205,6 +1255,8 @@ class PeruSpatialHubPanel(QDockWidget):
 
     def on_selection_changed(self):
         """Loads metadata details when a service node is selected."""
+        if self._shutting_down or sip.isdeleted(self):
+            return
         selected_items = self.tree_widget.selectedItems()
         if not selected_items:
             self.update_buttons_state(None)
@@ -1217,6 +1269,8 @@ class PeruSpatialHubPanel(QDockWidget):
 
     def on_item_expanded(self, item):
         """Called when a tree node is expanded. Loads subfolders/services dynamically."""
+        if self._filtering_tree or self._shutting_down:
+            return
         node_data = item.data(0, Qt.ItemDataRole.UserRole)
         if (
             node_data
@@ -1326,6 +1380,7 @@ class PeruSpatialHubPanel(QDockWidget):
                             "name": folder_name,
                             "institution": inst,
                             "category": cat,
+                            "crs_warning": node_data.get("crs_warning", False),
                         })
                         dummy = QTreeWidgetItem(f_item)
                         dummy.setText(0, "Expandir para explorar...")
@@ -1363,6 +1418,7 @@ class PeruSpatialHubPanel(QDockWidget):
                             "institution": inst,
                             "category": cat,
                             "description": f"Servicio REST {stype_str} en vivo provisto por {inst}.",
+                            "crs_warning": node_data.get("crs_warning", False),
                             "is_loaded": is_image,
                         })
                         if not is_image:
@@ -1398,6 +1454,8 @@ class PeruSpatialHubPanel(QDockWidget):
     def cancel_background_tasks(self):
         """Prevent callbacks from touching the panel while the plugin is unloading."""
         self._shutting_down = True
+        if not sip.isdeleted(self):
+            self.cancel_pending_search()
         for task in tuple(self._background_tasks):
             task.cancel()
         self._background_tasks.clear()
@@ -1576,6 +1634,9 @@ class PeruSpatialHubPanel(QDockWidget):
 
     def update_buttons_state(self, s):
         """Enables/disables buttons and sets metadata description based on selection."""
+        selected = self.tree_widget.selectedItems()
+        layer_count = sum(1 for item in selected
+                          if (item.data(0, Qt.ItemDataRole.UserRole) or {}).get("type") in self.LAYER_TYPES)
         if s is None:
             self.metadata_panel.setHtml(
                 "<h3>Explore el catálogo</h3>"
@@ -1592,19 +1653,6 @@ class PeruSpatialHubPanel(QDockWidget):
             self.btn_service_access.setEnabled(False)
             self.btn_service_access.setText("Configurar acceso privado")
         else:
-            selected_items = self.tree_widget.selectedItems()
-            if len(selected_items) > 1:
-                layer_count = sum(
-                    1 for it in selected_items
-                    if (it.data(0, Qt.ItemDataRole.UserRole) or {}).get("type") in self.LAYER_TYPES
-                )
-                if layer_count > 1:
-                    self.btn_add_layer.setText(f"Añadir {layer_count} capas")
-                    self.btn_add_layer.setEnabled(True)
-                else:
-                    self.btn_add_layer.setText("Añadir al mapa")
-            else:
-                self.btn_add_layer.setText("Añadir al mapa")
             service_url = s.get("service_url") or s.get("url", "")
             has_auth = bool(self.auth_config_for_url(service_url))
             self.btn_service_access.setEnabled(bool(self.normalize_auth_scope(service_url)))
@@ -1643,6 +1691,17 @@ class PeruSpatialHubPanel(QDockWidget):
             self.btn_register_browser.setEnabled(ntype != "arcgis_group")
             self.btn_copy_url.setEnabled(True)
             self.btn_open_browser.setEnabled(True)
+
+        self.btn_add_layer.setText(f"Añadir {layer_count} capas" if layer_count > 1 else "Añadir al mapa")
+        self.btn_add_layer.setEnabled(layer_count > 0 and not self._loading_layers)
+        if len(selected) != 1:
+            for control in (self.btn_register_browser, self.btn_copy_url, self.btn_open_browser, self.btn_service_access):
+                control.setEnabled(False)
+        elif s is not None:
+            try:
+                connection_root(s.get("stype") or s.get("type"))
+            except ValueError:
+                self.btn_register_browser.setEnabled(False)
 
     @staticmethod
     def provider_error(layer):
@@ -1796,89 +1855,79 @@ class PeruSpatialHubPanel(QDockWidget):
         return layer, attempts
 
     def add_selected_layer(self):
-        """Add native ArcGIS REST or WMS layer(s) to the map. Supports multi-selection."""
-        selected_items = self.tree_widget.selectedItems()
-        if not selected_items:
+        """Load a stable selection snapshot and tolerate nested GUI events."""
+        if not self._ui_available() or self._loading_layers:
             return
-
-        valid_items = [
-            item for item in selected_items
-            if item.data(0, Qt.ItemDataRole.UserRole)
-            and item.data(0, Qt.ItemDataRole.UserRole).get("type") in self.LAYER_TYPES
-        ]
-        if not valid_items:
+        layers = []
+        for item in self.tree_widget.selectedItems():
+            data = item.data(0, Qt.ItemDataRole.UserRole) or {}
+            if data.get("type") in self.LAYER_TYPES:
+                layers.append(dict(data))
+        if not layers:
             return
 
         from qgis.PyQt.QtWidgets import QApplication
+        self._loading_layers = True
+        self.btn_add_layer.setEnabled(False)
+        self._layer_progress = (0, len(layers), "Preparando capas…")
+        self._update_progress()
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, len(valid_items))
-        self.progress_bar.setValue(0)
-        QApplication.processEvents()
-
         added_count = 0
         failed_items = []
-
         try:
-            for idx, item in enumerate(valid_items):
-                s = item.data(0, Qt.ItemDataRole.UserRole)
-                name = s.get("name", "Capa")
-                self.progress_bar.setFormat(f"Cargando ({idx + 1}/{len(valid_items)}): {name[:25]}...")
-                self.progress_bar.setValue(idx)
+            for index, data in enumerate(layers):
+                if not self._ui_available():
+                    break
+                name = data.get("name", "Capa")
+                self._layer_progress = (index, len(layers), f"Cargando ({index + 1}/{len(layers)}): {name[:35]}…")
+                self._update_progress()
                 QApplication.processEvents()
-
-                layer, attempts = self._instantiate_layer(s)
-                if layer and layer.isValid():
+                if not self._ui_available():
+                    break
+                try:
+                    layer, attempts = self._instantiate_layer(data)
+                except Exception as exc:
+                    layer, attempts = None, [str(exc)]
+                if not self._ui_available():
+                    break
+                if layer is not None and layer.isValid():
                     QgsProject.instance().addMapLayer(layer)
                     added_count += 1
                 else:
-                    detail = "; ".join(attempts) or "error de proveedor"
-                    failed_items.append((name, detail))
-
-            self.progress_bar.setValue(len(valid_items))
+                    failed_items.append((name, "; ".join(attempts) or "error de proveedor"))
+            self._layer_progress = (len(layers), len(layers), "Carga completada")
         finally:
-            self.progress_bar.setVisible(False)
+            self._loading_layers = False
             QApplication.restoreOverrideCursor()
+            if self._ui_available():
+                self._update_progress()
+                selected = self.tree_widget.selectedItems()
+                self.update_buttons_state(selected[0].data(0, Qt.ItemDataRole.UserRole) if selected else None)
 
-        if len(valid_items) == 1:
-            if added_count == 1:
-                name = valid_items[0].data(0, Qt.ItemDataRole.UserRole).get("name", "")
-                self.iface.messageBar().pushMessage(
-                    "PeruSpatial Hub",
-                    f"Capa '{name}' añadida correctamente.",
-                    level=3,
-                    duration=4,
-                )
-            else:
-                name, detail = failed_items[0]
-                QMessageBox.warning(
-                    self,
-                    "Error al importar capa",
-                    f"No se pudo cargar la capa '{name}'.\n\n- {detail}\n\n"
-                    "Revise la disponibilidad del servicio y la compatibilidad del proveedor QGIS.",
-                )
-        else:
-            msg = f"Se añadieron {added_count} de {len(valid_items)} capas al mapa."
-            if failed_items:
-                msg += f" ({len(failed_items)} fallaron)"
+        if not self._ui_available():
+            return
+        if len(layers) == 1 and added_count:
             self.iface.messageBar().pushMessage(
-                "PeruSpatial Hub",
-                msg,
-                level=3 if added_count > 0 else 2,
-                duration=5,
-            )
-            if failed_items and added_count == 0:
-                errors_text = "\n".join(f"- {n}: {d}" for n, d in failed_items[:10])
-                QMessageBox.warning(
-                    self,
-                    "Error en carga por lotes",
-                    f"No se pudo cargar ninguna de las capas seleccionadas:\n\n{errors_text}",
-                )
+                "PeruSpatial Hub", f"Capa '{layers[0].get('name', '')}' añadida correctamente.",
+                level=3, duration=4)
+        else:
+            message = f"Se añadieron {added_count} de {len(layers)} capas al mapa."
+            if failed_items:
+                message += f" ({len(failed_items)} fallaron)"
+            self.iface.messageBar().pushMessage("PeruSpatial Hub", message,
+                level=3 if added_count else 2, duration=5)
+        if failed_items:
+            errors = "\n".join(f"- {name}: {detail[:500]}" for name, detail in failed_items[:10])
+            if len(failed_items) > 10:
+                errors += f"\n… y {len(failed_items) - 10} errores adicionales."
+            QMessageBox.warning(self, "Capas no cargadas",
+                f"Se añadieron {added_count} de {len(layers)} capas.\n\n{errors}\n\n"
+                "Revise la disponibilidad del servicio y el proveedor de QGIS.")
 
     def register_selected_connection(self):
         """Registers the selected service in QGIS Settings for Browser panel integration."""
         selected_items = self.tree_widget.selectedItems()
-        if not selected_items:
+        if len(selected_items) != 1:
             return
         
         s = selected_items[0].data(0, Qt.ItemDataRole.UserRole)
@@ -1897,7 +1946,11 @@ class PeruSpatialHubPanel(QDockWidget):
                 else "arcgis_mapserver"
             )
 
-        self.write_connection(name, url, stype, self.auth_config_for_url(url))
+        try:
+            name = self.write_connection(name, url, stype, self.auth_config_for_url(url))
+        except ValueError as exc:
+            QMessageBox.warning(self, "No se pudo registrar la conexión", str(exc))
+            return
 
         connection_section = "WMS/WMTS" if stype == "wms" else "ArcGIS REST"
 
@@ -1942,27 +1995,17 @@ class PeruSpatialHubPanel(QDockWidget):
             )
 
     def write_connection(self, name, url, stype, authcfg=""):
-        """Writes the actual connection settings to QSettings."""
-        settings = QgsSettings()
-        
-        if stype in ["arcgis_mapserver", "arcgisfeatureserver", "arcgis_imageserver", "arcgis_rest"]:
-            if stype == "arcgisfeatureserver":
-                key = f"qgis/connections-arcgisfeatureserver/{name}/"
-            else:
-                key = f"qgis/connections-arcgismapserver/{name}/"
-            
-            settings.setValue(key + "url", url)
-            settings.setValue(key + "authcfg", authcfg or "")
-        elif stype == "wms":
-            key = f"qgis/connections-wms/{name}/"
-            settings.setValue(key + "url", url)
-            settings.setValue(key + "authcfg", authcfg or "")
+        """Register an immediately usable native connection without clobbering others."""
+        saved_name = register_connection(
+            QgsSettings(), name, url, stype, authcfg,
+            anonymous_override=self.auth_scope_for_url(url) == self.NO_AUTH_SCOPE)
         self.iface.reloadConnections()
+        return saved_name
 
     def copy_selected_url(self):
         """Copies the URL of the selected service to the clipboard."""
         selected_items = self.tree_widget.selectedItems()
-        if not selected_items:
+        if len(selected_items) != 1:
             return
         
         s = selected_items[0].data(0, Qt.ItemDataRole.UserRole)
@@ -1980,7 +2023,7 @@ class PeruSpatialHubPanel(QDockWidget):
     def open_selected_web(self):
         """Opens the selected service's REST/WMS endpoint page in default web browser."""
         selected_items = self.tree_widget.selectedItems()
-        if not selected_items:
+        if len(selected_items) != 1:
             return
         
         s = selected_items[0].data(0, Qt.ItemDataRole.UserRole)

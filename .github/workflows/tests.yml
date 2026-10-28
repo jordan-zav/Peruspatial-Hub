@@ -44,3 +44,41 @@ jobs:
           path: |
             dist/PeruSpatial-Hub-*.zip
             bandit-plugin.json
+
+  qgis-interface:
+    needs: test-and-package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      QGIS_PREFIX_PATH: /usr
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install system QGIS and virtual display
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qgis python3-qgis xvfb xauth
+
+      - name: Download the tested installable archive
+        uses: actions/download-artifact@v4
+        with:
+          name: peruspatial-hub
+          path: qa-package
+
+      - name: Extract the installable archive
+        run: python3 -m zipfile -e qa-package/dist/PeruSpatial-Hub-*.zip qa-installed
+
+      - name: Exercise real Qt widgets and background tasks
+        run: xvfb-run -a /usr/bin/python3 scripts/qgis_ui_checks.py --plugin-root qa-installed/peruspatial_hub --output qa-output/widgets
+
+      - name: Install and exercise plugin inside QGIS desktop
+        run: xvfb-run -a /usr/bin/python3 scripts/qgis_desktop_checks.py --qgis-bin /usr/bin/qgis --plugin-root qa-installed/peruspatial_hub --install --output qa-output/desktop
+
+      - name: Upload interface reports and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qgis-interface-audit
+          path: qa-output
