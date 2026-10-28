@@ -80,6 +80,8 @@ def main():
         QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.No
         context = SimpleNamespace(panel=panel, window=window, messages=messages, dialogs=dialogs)
         started = time.monotonic()
+        original_palette = QPalette(app.palette())
+        original_style = app.style().objectName()
         try:
             detail = callback(context)
             app.processEvents()
@@ -100,6 +102,9 @@ def main():
             QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
             QMessageBox.warning, QMessageBox.information, QMessageBox.question = original_warning, original_info, original_question
             QgsProject.instance().removeAllMapLayers()
+            app.setPalette(original_palette)
+            if app.style().objectName() != original_style:
+                app.setStyle(original_style)
         result["seconds"] = round(time.monotonic() - started, 3)
         results.append(result)
         (args.output / "ui-results.json").write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -573,6 +578,9 @@ def main():
             palette.setColor(QPalette.ColorRole.Base, QColor("#161a20"))
             palette.setColor(QPalette.ColorRole.Button, QColor("#292f37"))
             palette.setColor(QPalette.ColorRole.ButtonText, QColor("#eceff4"))
+            app.setStyle("Fusion")
+            app.setPalette(palette)
+            c.window.setPalette(palette)
             c.panel.setPalette(palette)
             c.panel.init_panel_style()
         c.window.resize(width, 850)
@@ -583,6 +591,8 @@ def main():
         for control in controls:
             point = control.mapTo(c.panel.main_widget, control.rect().bottomRight())
             assert content.contains(point), f"Control clipped: {control.text() if hasattr(control, 'text') else control.objectName()}"
+        header = c.panel.main_layout.itemAt(0).widget()
+        header.grab().save(str(args.output / f"header-{width}-{font_size}-{'dark' if dark else 'light'}.png"))
         return {"requested_width": width, "actual_width": c.window.width(), "font": font_size, "dark": dark}
 
     run_case("layout_narrow", lambda c: layout(c, 330, 10, False))

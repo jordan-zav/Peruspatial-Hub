@@ -20,7 +20,7 @@ from qgis.PyQt.QtWidgets import (
     QLabel, QTextBrowser, QMessageBox, QSplitter, QDialog, QDialogButtonBox,
     QMenu, QProgressBar, QHeaderView
 )
-from qgis.PyQt.QtGui import QFont, QColor, QPalette
+from qgis.PyQt.QtGui import QFont, QColor, QPalette, QIcon
 from qgis.core import (
     QgsSettings, QgsRasterLayer, QgsVectorLayer, QgsProject, QgsDataSourceUri,
     QgsCoordinateReferenceSystem, QgsNetworkAccessManager, QgsApplication, QgsTask,
@@ -367,20 +367,33 @@ class PeruSpatialHubPanel(QDockWidget):
         """)
 
     def init_header(self):
-        """A compact, left-aligned identity above the working catalog."""
+        """Keep the logo beside the name so branding does not displace the catalog."""
         header = QWidget()
-        layout = QVBoxLayout(header)
+        layout = QHBoxLayout(header)
         layout.setContentsMargins(0, 0, 0, 4)
-        layout.setSpacing(3)
+        layout.setSpacing(10)
+        icon = QIcon(os.path.join(self.plugin_dir or os.path.dirname(__file__), "logo_solo.png"))
+        if not icon.isNull():
+            logo = QLabel()
+            logo.setObjectName("peruspatialHeaderLogo")
+            logo.setFixedSize(32, 40)
+            logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            logo.setPixmap(icon.pixmap(32, 40))
+            layout.addWidget(logo)
+
+        text = QVBoxLayout()
+        text.setSpacing(2)
         title = QLabel("PeruSpatial Hub")
+        title.setObjectName("peruspatialHeaderTitle")
         font = QFont(self.font())
-        font.setPointSizeF(font.pointSizeF() + 3)
+        font.setPointSizeF(font.pointSizeF() + 1)
         font.setBold(True)
         title.setFont(font)
-        layout.addWidget(title)
+        text.addWidget(title)
         subtitle = QLabel("Datos geoespaciales del Perú")
         subtitle.setWordWrap(True)
-        layout.addWidget(subtitle)
+        text.addWidget(subtitle)
+        layout.addLayout(text, 1)
         self.main_layout.addWidget(header)
 
     def init_search_filters(self):
