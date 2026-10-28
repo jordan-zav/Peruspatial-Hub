@@ -35,8 +35,41 @@ def test_invalid_or_non_importable_wms_is_not_healthy(payload):
 @pytest.mark.parametrize("encoding", ["utf-8", "utf-16", "utf-32"])
 def test_wms_rejects_entity_declarations(encoding):
     payload = '<!DOCTYPE x [<!ENTITY x "value">]><WMS_Capabilities/>'
+    with pytest.raises(ValueError):
+        parse_wms_layer_catalog(payload.encode(encoding))
+
+
+@pytest.mark.parametrize("declarations", [
+    '<!ENTITY xxe SYSTEM "file:///etc/passwd">',
+    '<!ENTITY xxe SYSTEM "https://unreachable.invalid/secret">',
+    '<!ENTITY % external SYSTEM "https://unreachable.invalid/remote.dtd">%external;',
+    '<!ENTITY a "1234567890"><!ENTITY b "&a;&a;&a;&a;&a;">',
+])
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16"])
+def test_wms_blocks_external_parameter_and_expansion_attacks(declarations, encoding):
+    payload = f'<!DOCTYPE WMS_Capabilities [{declarations}]><WMS_Capabilities/>'
     with pytest.raises(ValueError, match="entidades"):
         parse_wms_layer_catalog(payload.encode(encoding))
+
+
+def test_wms_predefined_entities_and_cdata_are_safe():
+    root = parse_wms_layer_catalog(b'''<WMS_Capabilities><Capability><Layer>
+    <Name>safe</Name><Title>Rock &amp; water <![CDATA[<sample>]]></Title>
+    </Layer></Capability></WMS_Capabilities>''')
+    assert root["title"] == "Rock & water <sample>"
+
+
+@pytest.mark.parametrize("limit,value,payload", [
+    ("MAX_WMS_BYTES", 10, WMS),
+    ("MAX_XML_ELEMENTS", 3, WMS),
+    ("MAX_XML_DEPTH", 3, WMS),
+    ("MAX_WMS_LAYERS", 1, WMS),
+    ("MAX_FIELD_CHARS", 3, WMS),
+])
+def test_wms_resource_limits_are_enforced(monkeypatch, limit, value, payload):
+    monkeypatch.setattr(f"peruspatial_hub_ogc.{limit}", value)
+    with pytest.raises(ValueError, match="límite"):
+        parse_wms_layer_catalog(payload)
 
 
 def test_builder_and_runtime_use_same_wms_rules(monkeypatch):

@@ -18,6 +18,12 @@ un catálogo local y carga servicios ráster o vectoriales con proveedores nativ
 
 </div>
 
+La release 1.4.0 de GitHub se reemitió con un lector XML WMS incremental y
+restricciones de seguridad después del bloqueo del archivo original en el portal
+QGIS. Consulte la [corrección de seguridad XML](docs/SECURITY_XML_20261028.md).
+El portal QGIS exige un número nuevo para otra subida; actualizar los archivos
+de GitHub no levanta allí el bloqueo de la versión original.
+
 > [!IMPORTANT]
 > El catálogo describe servicios externos cuya disponibilidad, esquema y
 > condiciones pueden cambiar. Conserva la atribución institucional y comprueba

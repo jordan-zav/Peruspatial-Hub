@@ -2,6 +2,7 @@
 
 ## 1.4.0 - 2026-10-28
 
+- Reemisión de seguridad: lector XML incremental con entidades bloqueadas y límites de recursos; 51 pruebas y escaneo Bandit del ZIP instalable sin hallazgos. La 1.4.0 original fue bloqueada por el portal QGIS; allí se necesita un número nuevo para otra subida.
 - Incorpora directorios públicos verificados de ANA/SNIRH, CENEPRED/SIGRID, MTC/Provías Nacional, MIDAGRI y SENACE, más siete WMS temáticos de SENAMHI.
 - Comparte el lector WMS entre QGIS y el generador, sin asumir el tipo de cadena de PyQt; conserva CRS heredados y parámetros de proveedor.
 - Verifica el contenido de GetCapabilities antes de declarar un WMS disponible.

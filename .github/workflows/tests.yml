@@ -32,8 +32,15 @@ jobs:
       - name: Build QGIS plugin archive
         run: python scripts/package_plugin.py
 
+      - name: Scan the installable plugin archive with Bandit
+        run: |
+          python -m zipfile -e dist/PeruSpatial-Hub-*.zip packaged-security
+          python -m bandit -r packaged-security/peruspatial_hub --format json --output bandit-plugin.json
+
       - name: Upload plugin archive
         uses: actions/upload-artifact@v4
         with:
           name: peruspatial-hub
-          path: dist/PeruSpatial-Hub-*.zip
+          path: |
+            dist/PeruSpatial-Hub-*.zip
+            bandit-plugin.json

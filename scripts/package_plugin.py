@@ -30,6 +30,7 @@ PLUGIN_FILES = (
     "README.md",
     "README.es.md",
     "docs/AUDIT_20261028.md",
+    "docs/SECURITY_XML_20261028.md",
 )
 
 MANDATORY_METADATA_KEYS = (

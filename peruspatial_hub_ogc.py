@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from xml.parsers import expat
 
 MAX_WMS_BYTES = 25 * 1024 * 1024
+MAX_XML_DEPTH = 128
+MAX_XML_ELEMENTS = 100_000
+MAX_WMS_LAYERS = 20_000
+MAX_FIELD_CHARS = 1_000_000
 
 
 def merge_crs(inherited, own):
@@ -13,47 +17,93 @@ def merge_crs(inherited, own):
 
 
 def parse_wms_layer_catalog(payload):
-    """Read a WMS 1.1/1.3 catalogue without Qt string binding assumptions.
+    """Stream WMS XML with entities disabled and explicit resource limits.
 
-    ElementTree does not fetch external DTDs. Ordinary WMS 1.1 DOCTYPE
-    declarations are accepted, while entity declarations are rejected.
+    External DTD identifiers in WMS 1.1 are accepted but never resolved.
+    Internal DTD subsets, declarations and external entities are rejected
+    by parser callbacks before entity expansion. Only catalogue fields are
+    retained, rather than a complete untrusted XML tree.
     """
     if not isinstance(payload, bytes) or len(payload) > MAX_WMS_BYTES:
         raise ValueError("GetCapabilities WMS excede el límite permitido")
-    if b"<!ENTITY" in payload.replace(b"\x00", b"").upper():
+    parser = expat.ParserCreate(namespace_separator="}")
+    parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_NEVER)
+    element_stack = []
+    layer_stack = []
+    result = None
+    capture = None
+    element_count = 0
+    layer_count = 0
+
+    def reject_entities(*_args):
         raise ValueError("GetCapabilities WMS contiene entidades XML no permitidas")
+
+    def doctype(_name, _system_id, _public_id, internal_subset):
+        if internal_subset:
+            reject_entities()
+
+    parser.StartDoctypeDeclHandler = doctype
+    parser.EntityDeclHandler = reject_entities
+    parser.UnparsedEntityDeclHandler = reject_entities
+    parser.ExternalEntityRefHandler = reject_entities
+
+    def start(name, _attributes):
+        nonlocal element_count, layer_count, result, capture
+        name = name.rsplit("}", 1)[-1]
+        if not element_stack and name not in {"WMS_Capabilities", "WMT_MS_Capabilities"}:
+            raise ValueError("La respuesta no es un documento GetCapabilities WMS")
+        element_count += 1
+        if element_count > MAX_XML_ELEMENTS or len(element_stack) >= MAX_XML_DEPTH:
+            raise ValueError("GetCapabilities WMS excede el límite de elementos o profundidad")
+        parent = element_stack[-1] if element_stack else None
+        element_stack.append(name)
+        if name == "Layer" and (parent == "Capability" or (parent == "Layer" and layer_stack)):
+            layer_count += 1
+            if layer_count > MAX_WMS_LAYERS:
+                raise ValueError("GetCapabilities WMS excede el límite de capas")
+            layer = {"name": "", "title": "", "crs": [], "children": []}
+            if layer_stack:
+                layer_stack[-1][0]["children"].append(layer)
+            elif result is None:
+                result = layer
+            else:
+                raise ValueError("GetCapabilities WMS contiene varias capas raíz")
+            layer_stack.append((layer, len(element_stack)))
+        elif (layer_stack and len(element_stack) == layer_stack[-1][1] + 1
+              and name in {"Name", "Title", "CRS", "SRS"}):
+            capture = {"field": name, "depth": len(element_stack), "parts": [], "chars": 0}
+
+    def text(value):
+        if capture is not None:
+            capture["chars"] += len(value)
+            if capture["chars"] > MAX_FIELD_CHARS:
+                raise ValueError("GetCapabilities WMS excede el límite de texto por campo")
+            capture["parts"].append(value)
+
+    def end(_name):
+        nonlocal capture
+        depth = len(element_stack)
+        if capture is not None and capture["depth"] == depth:
+            value = "".join(capture["parts"]).strip()
+            layer = layer_stack[-1][0]
+            if capture["field"] in {"Name", "Title"}:
+                layer[capture["field"].lower()] = value
+            else:
+                layer["crs"] = list(dict.fromkeys([*layer["crs"], *value.split()]))
+            capture = None
+        if layer_stack and layer_stack[-1][1] == depth:
+            layer_stack.pop()
+        element_stack.pop()
+
+    parser.StartElementHandler = start
+    parser.CharacterDataHandler = text
+    parser.EndElementHandler = end
     try:
-        root = ET.fromstring(payload)
-    except ET.ParseError as exc:
+        parser.Parse(payload, True)
+    except expat.ExpatError as exc:
         raise ValueError(f"GetCapabilities WMS no devolvió XML válido: {exc}") from exc
-
-    def local_name(node):
-        return node.tag.rsplit("}", 1)[-1]
-
-    if local_name(root) not in {"WMS_Capabilities", "WMT_MS_Capabilities"}:
-        raise ValueError("La respuesta no es un documento GetCapabilities WMS")
-    capability = next((node for node in root if local_name(node) == "Capability"), None)
-    root_layer = next((node for node in capability if local_name(node) == "Layer"), None) if capability is not None else None
-    if root_layer is None:
+    if result is None:
         raise ValueError("GetCapabilities WMS no contiene un catálogo de capas")
-
-    def read_layer(node, depth=0):
-        if depth > 100:
-            raise ValueError("El catálogo WMS excede la profundidad permitida")
-        result = {"name": "", "title": "", "crs": [], "children": []}
-        for child in node:
-            name = local_name(child)
-            value = (child.text or "").strip()
-            if name in {"Name", "Title"}:
-                result[name.lower()] = value
-            elif name in {"CRS", "SRS"}:
-                result["crs"].extend(value.split())
-            elif name == "Layer":
-                result["children"].append(read_layer(child, depth + 1))
-        result["crs"] = list(dict.fromkeys(result["crs"]))
-        return result
-
-    result = read_layer(root_layer)
     queue = [result]
     named_layers = 0
     while queue:

@@ -8,7 +8,6 @@ import sys
 import time
 import urllib.error
 import urllib.request
-import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from peruspatial_hub_sources import LIVE_SERVERS
+from peruspatial_hub_ogc import parse_wms_layer_catalog
 from peruspatial_hub_urls import url_with_json, wms_capabilities_url
 
 
@@ -45,14 +45,14 @@ def probe_source(source, timeout=12):
             result["folders"] = data.get("folders", [])
             result["services"] = data.get("services", [])
         else:
-            if b"<!ENTITY" in payload.upper():
-                raise ValueError("XML entities not accepted")
-            root = ET.fromstring(payload)
-            if root.tag.rsplit("}", 1)[-1] not in ("WMS_Capabilities", "WMT_MS_Capabilities"):
-                raise ValueError("Response is not WMS GetCapabilities")
-            result["layer_count"] = sum(1 for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "Layer")
-            if not result["layer_count"]:
-                raise ValueError("WMS publishes no layers")
+            root = parse_wms_layer_catalog(payload)
+            layers = [root]
+            count = 0
+            while layers:
+                layer = layers.pop()
+                count += bool(layer["name"])
+                layers.extend(layer["children"])
+            result["layer_count"] = count
             result["has_doctype"] = b"<!DOCTYPE" in payload.upper()
         result["status"] = "ok"
     except Exception as exc:

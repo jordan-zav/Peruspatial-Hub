@@ -17,6 +17,12 @@ directories, and load native raster or vector services without copying viewer UR
 
 </div>
 
+The 1.4.0 GitHub release was reissued with a hardened streaming WMS XML reader
+after the QGIS portal blocked the original archive. See the
+[XML security correction](docs/SECURITY_XML_20261028.md).
+The blocked QGIS portal version requires a new version number for another upload;
+updating GitHub assets does not clear that portal status.
+
 ## Install and start
 
 1. Download the ZIP from the [latest release](https://github.com/jordan-zav/Peruspatial-Hub/releases/latest).
