@@ -217,11 +217,13 @@ def entry_search_text(entry: dict) -> str:
     precomputed = normalize_search_text(entry.get("search_text"))
     if precomputed:
         return precomputed
+    formats = (" mapa raster MapServer" if entry.get("type") == "arcgis_service" and entry.get("service_kind") == "MapServer"
+               else " raster" if entry.get("type") in {"wms_layer", "arcgis_raster_layer"} else "")
     return normalize_search_text(
         " ".join(
             str(entry.get(field, ""))
             for field in ("name", "institution", "category", "path", "display_type")
-        )
+        ) + formats
     )
 
 
@@ -277,8 +279,10 @@ def search_catalog(entries, query: object, category: str, limit: int = 200):
             score = 2
         else:
             score = 3
-        ranked.append((score, name, position, entry))
+        # Keep the complete rendered map visible before its many sublayers.
+        map_priority = 0 if entry.get("type") == "arcgis_service" and entry.get("service_kind") == "MapServer" else 1
+        ranked.append((score, map_priority, name, position, entry))
 
-    ranked.sort(key=lambda item: item[:3])
+    ranked.sort(key=lambda item: item[:4])
     total = len(ranked)
-    return [item[3] for item in ranked[: max(1, int(limit))]], total
+    return [item[4] for item in ranked[: max(1, int(limit))]], total

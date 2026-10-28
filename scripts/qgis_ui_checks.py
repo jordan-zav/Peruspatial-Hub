@@ -520,6 +520,30 @@ def main():
 
     run_case("inventory_metadata_details", inventory_metadata_details)
 
+    def mapserver_raster_choices(c):
+        service = dict(layer("SERV_GEOLOGIA_100K"), type="arcgis_service", service_kind="MapServer",
+                       stype="arcgis_mapserver", url="https://example.test/rest/services/geologia/MapServer")
+        node = fixtures(c.panel, [service])[0]
+        select(c.panel, [node])
+        assert c.panel.btn_add_layer.isEnabled() and c.panel.btn_add_layer.text() == "Añadir mapa ráster"
+        assert c.panel.entry_display_type(service) == "Mapa ráster · MapServer"
+        calls = []
+        def raster(url, layer_id, name, metadata=None):
+            calls.append((url, layer_id))
+            return QgsVectorLayer("Point?crs=EPSG:4326", name, "memory")
+        c.panel.create_arcgis_map_layer = raster
+        rendered, errors = c.panel._instantiate_layer(service)
+        assert rendered.isValid() and not errors and calls == [(service["url"], None)]
+        leaf = dict(service, type="arcgis_map_layer", service_url=service["url"], layer_id=7,
+                    url=service["url"] + "/7", prefer_raster=True)
+        c.panel.fetch_arcgis_json = lambda *a, **kw: {"id": 7, "type": "Feature Layer", "geometryType": "esriGeometryPolygon", "capabilities": "Query"}
+        c.panel.create_arcgis_vector_layer = lambda *a, **kw: (_ for _ in ()).throw(AssertionError("Raster choice must not construct a vector"))
+        rendered, errors = c.panel._instantiate_layer(leaf)
+        assert rendered.isValid() and not errors and calls[-1] == (service["url"], 7)
+        return "Full MapServer loads as raster; an explicit raster choice bypasses vector loading"
+
+    run_case("mapserver_raster_choices", mapserver_raster_choices)
+
     def invalid_service_inventory(c):
         entry = dict(layer("Cyclic service"), type="arcgis_service", stype="arcgis_mapserver",
                      service_kind="MapServer", url="https://example.test/rest/services/Test/MapServer", is_loaded=False)
@@ -605,7 +629,7 @@ def main():
             "layers": [{"id": 0, "name": "Declared vector", "type": "Feature Layer", "parentLayerId": -1}]})
         root.setExpanded(True)
         leaf = root.child(0)
-        assert leaf.text(1) == "Vectorial REST"
+        assert leaf.text(1) == "Vectorial · MapServer"
         select(c.panel, [leaf])
         assert c.panel.crs_banner.isVisible()
         return "Declared WKT recovers a missing CRS; valid CRS stays intact; explicit PSAD56 gets the datum notice"

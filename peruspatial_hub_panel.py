@@ -546,6 +546,27 @@ class PeruSpatialHubPanel(QDockWidget):
     CONTAINER_TYPES = {"server", "folder", "arcgis_service", "arcgis_group", "ogc_service", "wms_group"}
     LAYER_TYPES = {"arcgis_map_layer", "arcgis_vector_layer", "arcgis_raster_layer", "wms_layer"}
 
+    @staticmethod
+    def is_map_service(data):
+        return data.get("type") == "arcgis_service" and (
+            data.get("service_kind") == "MapServer" or data.get("stype") == "arcgis_mapserver")
+
+    def can_add_layer(self, data):
+        return data.get("type") in self.LAYER_TYPES or self.is_map_service(data)
+
+    def entry_display_type(self, data):
+        if self.is_map_service(data):
+            return "Mapa ráster · MapServer"
+        if data.get("type") == "wms_layer":
+            return "Mapa ráster · WMS"
+        if data.get("service_kind") == "ImageServer":
+            return "Ráster · ImageServer"
+        kind = data.get("data_kind")
+        if kind in {"vectorial", "raster", "tabla"}:
+            label = {"vectorial": "Vectorial", "raster": "Ráster", "tabla": "Tabla"}[kind]
+            return f"{label} · {data.get('service_kind') or 'REST'}"
+        return self.friendly_type(data.get("stype", data.get("type", "")))
+
     def show_context_menu(self, position):
         """Show a right-click context menu with actions appropriate for the selected node."""
         item = self.tree_widget.itemAt(position)
@@ -564,6 +585,8 @@ class PeruSpatialHubPanel(QDockWidget):
         ntype = data.get("type", "")
 
         if ntype in self.CONTAINER_TYPES:
+            if self.is_map_service(data):
+                menu.addAction("Añadir mapa ráster", self.add_selected_layer).setEnabled(not self._loading_layers)
             menu.addAction("Expandir / contraer", lambda: item.setExpanded(not item.isExpanded()))
             if data.get("is_loaded", False):
                 menu.addAction("Actualizar contenido", lambda: self.refresh_node(item))
@@ -577,12 +600,14 @@ class PeruSpatialHubPanel(QDockWidget):
             if len(selected) > 1:
                 layer_count = sum(
                     1 for it in selected
-                    if (it.data(0, Qt.ItemDataRole.UserRole) or {}).get("type") in self.LAYER_TYPES
+                    if self.can_add_layer(it.data(0, Qt.ItemDataRole.UserRole) or {})
                 )
                 menu.addAction(f"Añadir {layer_count} capas al Mapa", self.add_selected_layer).setEnabled(
                     layer_count > 0 and not self._loading_layers)
             else:
                 menu.addAction("Añadir al mapa", self.add_selected_layer).setEnabled(not self._loading_layers)
+                if ntype == "arcgis_map_layer" and not data.get("is_table"):
+                    menu.addAction("Añadir como mapa ráster", lambda: self.add_selected_layer(as_raster=True)).setEnabled(not self._loading_layers)
             menu.addSeparator()
             menu.addAction("Copiar URL", self.copy_selected_url).setEnabled(single_selection)
             menu.addAction("Abrir en navegador", self.open_selected_web).setEnabled(single_selection)
@@ -1100,7 +1125,7 @@ class PeruSpatialHubPanel(QDockWidget):
     def friendly_type(self, type_str):
         """Translates technical connection type to friendly name."""
         mapping = {
-            "arcgis_mapserver": "Raster/Vectorial REST",
+            "arcgis_mapserver": "Mapa ráster · MapServer",
             "arcgisfeatureserver": "Vectorial REST",
             "arcgis_imageserver": "Raster REST",
             "arcgis_map_layer": "Capa REST",
@@ -1217,8 +1242,7 @@ class PeruSpatialHubPanel(QDockWidget):
             item.setText(0, f"{institution} — {data.get('name', 'Sin nombre')}")
             item.setText(
                 1,
-                (entry.get("display_type")
-                 or self.friendly_type(data.get("stype", data.get("type", ""))))
+                self.entry_display_type(data)
                 + (" · Sin verificar" if data.get("stale") else ""),
             )
             item.setToolTip(0, entry.get("path", data.get("url", "")))
@@ -1625,6 +1649,8 @@ class PeruSpatialHubPanel(QDockWidget):
                         entry.get("spatialReference") or (entry.get("extent") or {}).get("spatialReference")),
                     **arcgis_metadata_fields(entry, metadata),
                 })
+            if not is_group:
+                tree_item.setText(1, self.entry_display_type(tree_item.data(0, Qt.ItemDataRole.UserRole)))
             created[layer_id] = tree_item
             return tree_item
 
@@ -1645,7 +1671,7 @@ class PeruSpatialHubPanel(QDockWidget):
         """Enables/disables buttons and sets metadata description based on selection."""
         selected = self.tree_widget.selectedItems()
         layer_count = sum(1 for item in selected
-                          if (item.data(0, Qt.ItemDataRole.UserRole) or {}).get("type") in self.LAYER_TYPES)
+                          if self.can_add_layer(item.data(0, Qt.ItemDataRole.UserRole) or {}))
         if s is None:
             self.metadata_panel.setHtml(
                 "<h3>Explore el catálogo</h3>"
@@ -1675,11 +1701,14 @@ class PeruSpatialHubPanel(QDockWidget):
                 description = "Expanda el servicio para consultar sus capas WMS."
                 kind = "WMS"
             elif is_container:
-                description = "Expanda el servicio para explorar sus carpetas y capas."
-                kind = self.friendly_type(s.get("stype", ntype))
+                description = ("Añada el mapa completo como ráster con la simbología del servidor, o expanda el servicio para seleccionar sus subcapas."
+                               if self.is_map_service(s) else "Expanda el servicio para explorar sus carpetas y capas.")
+                kind = self.entry_display_type(s)
             else:
                 description = s.get("description", "")
-                kind = self.friendly_type(s.get("stype", ntype))
+                kind = self.entry_display_type(s)
+                if ntype == "arcgis_map_layer" and not s.get("is_table"):
+                    description += " Para cargar la imagen con la simbología del servidor, use clic derecho → Añadir como mapa ráster."
 
             name = escape(str(s.get("name", "Sin nombre")))
             institution = escape(str(s.get("institution", "")))
@@ -1717,12 +1746,13 @@ class PeruSpatialHubPanel(QDockWidget):
                 f"{details}{facts_html}{warnings_html}<p><a href='{href}'>{host}</a></p>{tags_html}"
             )
             self.metadata_panel.setToolTip(url)
-            self.btn_add_layer.setEnabled(not is_container)
+            self.btn_add_layer.setEnabled(self.can_add_layer(s))
             self.btn_register_browser.setEnabled(ntype != "arcgis_group")
             self.btn_copy_url.setEnabled(True)
             self.btn_open_browser.setEnabled(True)
 
-        self.btn_add_layer.setText(f"Añadir {layer_count} capas" if layer_count > 1 else "Añadir al mapa")
+        self.btn_add_layer.setText(f"Añadir {layer_count} capas" if layer_count > 1 else
+                                  "Añadir mapa ráster" if s and self.is_map_service(s) else "Añadir al mapa")
         self.btn_add_layer.setEnabled(layer_count > 0 and not self._loading_layers)
         if len(selected) != 1:
             for control in (self.btn_register_browser, self.btn_copy_url, self.btn_open_browser, self.btn_service_access):
@@ -1782,7 +1812,8 @@ class PeruSpatialHubPanel(QDockWidget):
         authcfg = self.auth_config_for_url(service_url)
         if authcfg:
             uri.setAuthConfigId(authcfg)
-        uri.setParam("layer", str(layer_id))
+        if layer_id is not None:
+            uri.setParam("layer", str(layer_id))
         uri.setParam("format", "png32")
         layer = QgsRasterLayer(uri.uri(False), name, "arcgismapserver")
         self.apply_metadata_crs(layer, metadata or {})
@@ -1833,7 +1864,12 @@ class PeruSpatialHubPanel(QDockWidget):
         metadata = {}
 
         try:
-            if layer_type == "arcgis_vector_layer":
+            if self.is_map_service(s):
+                layer = self.create_arcgis_map_layer(s["url"], None, name)
+                if not layer.isValid():
+                    attempts.append(f"Mapa ráster MapServer: {self.provider_error(layer)}")
+
+            elif layer_type == "arcgis_vector_layer":
                 layer = self.create_arcgis_vector_layer(s["url"], name)
                 if not layer.isValid():
                     attempts.append(f"Vector REST: {self.provider_error(layer)}")
@@ -1861,7 +1897,7 @@ class PeruSpatialHubPanel(QDockWidget):
                     not capabilities or "query" in capabilities
                 ) and "raster" not in layer_kind
 
-                if queryable_vector:
+                if queryable_vector and not s.get("prefer_raster"):
                     layer = self.create_arcgis_vector_layer(s["url"], name, metadata)
                     if not layer.isValid():
                         attempts.append(f"Vector REST: {self.provider_error(layer)}")
@@ -1900,15 +1936,15 @@ class PeruSpatialHubPanel(QDockWidget):
 
         return layer, attempts
 
-    def add_selected_layer(self):
+    def add_selected_layer(self, as_raster=False):
         """Load a stable selection snapshot and tolerate nested GUI events."""
         if not self._ui_available() or self._loading_layers:
             return
         layers = []
         for item in self.tree_widget.selectedItems():
             data = item.data(0, Qt.ItemDataRole.UserRole) or {}
-            if data.get("type") in self.LAYER_TYPES:
-                layers.append(dict(data))
+            if self.can_add_layer(data):
+                layers.append(dict(data, prefer_raster=bool(as_raster)))
         if not layers:
             return
 

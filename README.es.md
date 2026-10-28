@@ -185,4 +185,6 @@ Jordan Zavaleta — GisGeo Dev<br>
 
 El buscador y el filtro de categorías están sobre el catálogo. Al seleccionar un servicio o una capa, sus detalles aparecen debajo. **Añadir al mapa** es la acción principal; **Registrar conexión** guarda la selección en el navegador de QGIS. El menú **Herramientas** reúne copiar URL, abrir en el navegador, configurar acceso privado, registrar todas las conexiones, verificar servidores y consultar la información del complemento. **Fuentes** muestra la disponibilidad documentada de las instituciones.
 
+Los servicios **Mapa ráster · MapServer** permiten añadir el mapa completo con la simbología publicada por la institución. También se pueden expandir para cargar sus subcapas vectoriales. En una subcapa MapServer, el menú de clic derecho ofrece **Añadir como mapa ráster**. Los resultados mantienen visible el mapa completo antes de sus numerosas subcapas. Una imagen renderizada de MapServer conserva el estilo del servidor; para analizar valores de píxel originales, use el servicio de imagen o dataset que publique la fuente.
+
 El panel utiliza la tipografía y la paleta de QGIS. El aviso de datum aparece al seleccionar una fuente marcada con posibles capas históricas en PSAD56; la ausencia del aviso no certifica el CRS de las capas.

@@ -169,6 +169,21 @@ def main():
                 if raster.isValid():
                     QgsProject.instance().addMapLayer(raster)
                     raster_layers.append(raster)
+        if not args.institution or "INGEMMET (GEOCATMIN)" in args.institution:
+            service = next(entry for entry in panel.catalog_entries if entry.get("type") == "arcgis_service"
+                           and entry.get("service_kind") == "MapServer" and entry.get("name") == "SERV_GEOLOGIA_100K_INTEGRADA")
+            leaf = next(entry for entry in panel.catalog_entries if entry.get("service_url") == service["url"]
+                        and entry.get("type") == "arcgis_map_layer" and "geolog" in entry.get("name", "").casefold())
+            for entry in (service, dict(leaf, prefer_raster=True)):
+                raster, errors = panel._instantiate_layer(entry)
+                valid = raster is not None and raster.isValid()
+                live_results.append({"institution": entry["institution"], "url": entry["url"], "valid": valid,
+                                     "errors": errors, "provider": raster.providerType() if raster else None})
+                if valid:
+                    assert raster.providerType() == "arcgismapserver"
+                    raster.setCustomProperty("peruspatial_qa_detail_extent", True)
+                    QgsProject.instance().addMapLayer(raster)
+                    raster_layers.append(raster)
         checks.append({"check": "Live native providers", "results": live_results})
         (args.output / "qgis-smoke.json").write_text(json.dumps(checks, indent=2), encoding="utf-8")
         assert all(result["valid"] for result in live_results), live_results
@@ -179,6 +194,8 @@ def main():
             settings.setLayers([layer])
             settings.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:4326"))
             settings.setExtent(QgsRectangle(-82, -19, -68, 0))
+            if layer.customProperty("peruspatial_qa_detail_extent", False):
+                settings.setExtent(QgsRectangle(-75.2, -12.2, -75.0, -12.0))
             settings.setOutputSize(QSize(640, 480))
             settings.setBackgroundColor(QColor("white"))
             job = QgsMapRendererParallelJob(settings)

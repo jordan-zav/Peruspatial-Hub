@@ -5,7 +5,7 @@ import pytest
 from peruspatial_hub_sources import LIVE_SERVERS, ACTIVE_REST_ROOTS, ACTIVE_WMS_ROOTS, CATALOG_CATEGORIES
 from peruspatial_hub_urls import clean_rest_url
 
-from peruspatial_hub_catalog import load_catalog, normalize_search_text, search_catalog
+from peruspatial_hub_catalog import load_catalog, normalize_search_text, search_catalog, entry_search_text
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +14,14 @@ CATALOG_PATH = ROOT / "catalog" / "catalog.json"
 
 def test_normalization_ignores_accents_case_and_repeated_spaces():
     assert normalize_search_text("  GEOLOGÍA   Histórica ") == "geologia historica"
+
+
+def test_full_map_remains_visible_ahead_of_sublayers_in_search():
+    service = {"name": "SERV_GEOLOGIA_100K", "type": "arcgis_service", "service_kind": "MapServer"}
+    leaf = {"name": "Contactos", "path": "SERV_GEOLOGIA_100K", "type": "arcgis_map_layer"}
+    results, total = search_catalog([leaf, service], "100k geologia", "", limit=1)
+    assert total == 2 and results == [service]
+    assert "raster" in entry_search_text(service)
 
 
 def test_search_ranks_names_filters_categories_and_limits_results():

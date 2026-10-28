@@ -10,6 +10,11 @@
 Search a bundled offline catalogue, explore public ArcGIS REST and WMS
 directories, and load native raster or vector services without copying viewer URLs.
 
+MapServer services can be added as complete rendered raster maps, preserving the
+server's styling, or expanded to load individual vector sublayers. Right-click a
+MapServer sublayer to choose **Añadir como mapa ráster**. Rendered maps are distinct
+from original pixel datasets published through an image service.
+
 [![Source 1.4.0](https://img.shields.io/badge/source-1.4.0-2563eb)](metadata.txt)
 [![Release](https://img.shields.io/github/v/release/jordan-zav/Peruspatial-Hub?color=7c3aed)](https://github.com/jordan-zav/Peruspatial-Hub/releases/latest)
 [![QGIS 3.34+](https://img.shields.io/badge/QGIS-3.34%2B-589632?logo=qgis&logoColor=white)](https://qgis.org/)
