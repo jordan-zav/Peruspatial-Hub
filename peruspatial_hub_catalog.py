@@ -37,13 +37,22 @@ def load_catalog(path) -> dict:
         return {"schema_version": CATALOG_SCHEMA_VERSION, "entries": [], "sources": []}
 
     payload = json.loads(catalog_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("el inventario no es un objeto JSON")
     if payload.get("schema_version") != CATALOG_SCHEMA_VERSION:
         raise ValueError("versión de inventario no compatible")
     if not isinstance(payload.get("entries"), list):
         raise ValueError("el inventario no contiene una lista de entradas")
+    sources = payload.get("sources", [])
+    if not isinstance(sources, list) or any(not isinstance(source, dict) for source in sources):
+        raise ValueError("el inventario no contiene una lista válida de fuentes")
+    if "entry_count" in payload and payload["entry_count"] != len(payload["entries"]):
+        raise ValueError("el recuento del inventario no coincide con sus entradas")
     for entry in payload["entries"]:
-        if isinstance(entry, dict):
-            entry["_search_text"] = entry_search_text(entry)
+        if not isinstance(entry, dict) or not all(isinstance(entry.get(key), str) and entry[key]
+                                                  for key in ("name", "url", "type")):
+            raise ValueError("el inventario contiene una entrada inválida")
+        entry["_search_text"] = entry_search_text(entry)
     return payload
 
 

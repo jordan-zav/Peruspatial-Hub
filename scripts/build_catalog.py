@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import time
 import urllib.request
-import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from peruspatial_hub_catalog import CATALOG_SCHEMA_VERSION, normalize_search_text
+from peruspatial_hub_ogc import merge_crs, parse_wms_layer_catalog
 from peruspatial_hub_sources import LIVE_SERVERS
 from peruspatial_hub_urls import (
     append_rest_path,
@@ -23,6 +24,7 @@ from peruspatial_hub_urls import (
     service_url,
     url_with_json,
     wms_capabilities_url,
+    wms_service_url,
 )
 
 
@@ -203,7 +205,7 @@ def inventory_arcgis(source):
     descriptors, errors, directory_count = discover_arcgis_services(source)
     entries = [arcgis_service_entry(source, descriptor) for descriptor in descriptors]
 
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         future_map = {
             executor.submit(arcgis_layer_entries, source, descriptor): descriptor
             for descriptor in descriptors
@@ -222,7 +224,7 @@ def inventory_arcgis(source):
         "type": "arcgis_rest",
         "directories": directory_count,
         "entries": len(entries),
-        "status": "ok" if not errors else "partial",
+        "status": "ok" if not errors else ("partial" if entries else "error"),
         "errors": errors[:20],
     }
 
@@ -241,85 +243,43 @@ def direct_text(element, name):
 
 
 def inventory_wms(source):
+    entries = [{
+        "type": "ogc_service", "stype": "wms", "url": source["url"],
+        "service_url": wms_service_url(source["url"]),
+        "name": source["name"], "institution": source["institution"],
+        "category": source["category"], "description": f"Servicio WMS de {source['institution']}.",
+        "display_type": "Servicio WMS", "path": f"{source['institution']} / {source['name']}",
+        "is_loaded": False,
+    }]
     errors = []
-    entries = [
-        finalize_entry(
-            {
-                "type": "ogc_service",
-                "stype": "wms",
-                "url": source["url"],
-                "service_url": clean_rest_url(source["url"]),
-                "name": source["name"],
-                "institution": source["institution"],
-                "category": source["category"],
-                "description": f"Servicio WMS inventariado de {source['institution']}.",
-                "display_type": "Servicio WMS",
-                "path": f"{source['institution']} / {source['name']}",
-                "is_loaded": False,
-            }
-        )
-    ]
     try:
-        payload = read_url(
-            wms_capabilities_url(source["url"]),
-            "application/xml,text/xml",
-            timeout=30,
-        )
-        if b"<!DOCTYPE" in payload.upper() or b"<!ENTITY" in payload.upper():
-            raise RuntimeError("WMS document contains a disallowed DTD/entity")
-        root = ET.fromstring(payload)
-        capability = next((item for item in root.iter() if local_name(item.tag) == "Capability"), None)
-        root_layer = direct_children(capability, "Layer")[0] if capability is not None else None
-        if root_layer is None:
-            raise RuntimeError("WMS did not publish a root Layer")
+        payload = read_url(wms_capabilities_url(source["url"]), "application/xml,text/xml", timeout=30)
+        root_layer = parse_wms_layer_catalog(payload)
 
-        service_url_value = clean_rest_url(source["url"])
-
-        def walk(layer, inherited_crs, path):
-            own_crs = [
-                (child.text or "").strip()
-                for child in list(layer)
-                if local_name(child.tag) in {"CRS", "SRS"} and (child.text or "").strip()
-            ]
-            available_crs = list(dict.fromkeys(own_crs or inherited_crs))
-            title = direct_text(layer, "Title") or "Capa WMS"
-            layer_name = direct_text(layer, "Name")
+        def walk(layer, inherited, path):
+            crs = merge_crs(inherited, layer["crs"])
+            title = layer["title"] or "Capa WMS"
+            layer_name = layer["name"]
             current_path = f"{path} / {title}"
             if layer_name:
-                entries.append(
-                    finalize_entry(
-                        {
-                            "type": "wms_layer",
-                            "stype": "wms",
-                            "url": source["url"],
-                            "service_url": service_url_value,
-                            "layer_name": layer_name,
-                            "name": title,
-                            "institution": source["institution"],
-                            "category": source["category"],
-                            "crs_options": available_crs,
-                            "description": f"Capa WMS inventariada de {source['institution']}.",
-                            "display_type": "Capa WMS",
-                            "path": current_path,
-                            "is_loaded": True,
-                        }
-                    )
-                )
-            for child_layer in direct_children(layer, "Layer"):
-                walk(child_layer, available_crs, current_path)
+                entries.append({
+                    "type": "wms_layer", "stype": "wms", "url": source["url"],
+                    "service_url": wms_service_url(source["url"]),
+                    "layer_name": layer_name, "name": title,
+                    "institution": source["institution"], "category": source["category"],
+                    "crs_options": crs, "description": f"Capa WMS de {source['institution']}.",
+                    "display_type": "Capa WMS", "path": current_path, "is_loaded": True,
+                })
+            for child in layer["children"]:
+                walk(child, crs, current_path)
 
         walk(root_layer, [], source["institution"])
     except Exception as exc:
         errors.append(str(exc))
-
     return entries, {
-        "institution": source["institution"],
-        "name": source["name"],
-        "url": source["url"],
-        "type": "wms",
-        "entries": len(entries),
-        "status": "ok" if not errors else "partial",
-        "errors": errors,
+        "institution": source["institution"], "name": source["name"], "url": source["url"],
+        "type": "wms", "entries": len(entries),
+        "status": "ok" if not errors else "error", "errors": errors,
     }
 
 
@@ -340,60 +300,106 @@ def inventory_source(source):
         }
 
 
+def entry_key(entry):
+    url = (wms_service_url(entry.get("url", "")) if entry.get("stype") == "wms"
+           else clean_rest_url(entry.get("url", "")))
+    return entry.get("type"), url, entry.get("layer_id"), entry.get("layer_name")
+
+
 def deduplicate(entries):
     unique = {}
     for entry in entries:
-        key = (
-            entry.get("type"),
-            clean_rest_url(entry.get("url", "")),
-            entry.get("layer_id"),
-            entry.get("layer_name"),
-        )
-        unique[key] = entry
-    return sorted(
-        unique.values(),
-        key=lambda item: (
-            normalize_search_text(item.get("institution")),
-            normalize_search_text(item.get("name")),
-            str(item.get("url", "")),
-        ),
-    )
+        key = entry_key(entry)
+        old = unique.get(key)
+        # A fresh response wins over retained metadata. Prefer a more specific
+        # source root when the same service appears in overlapping directories.
+        def priority(item):
+            return bool(item.get("stale")), -len(item.get("source_url", ""))
+        if old is None or priority(entry) < priority(old):
+            unique[key] = entry
+    return sorted(unique.values(), key=lambda item: (
+        normalize_search_text(item.get("institution")), normalize_search_text(item.get("name")),
+        str(item.get("url", "")),
+    ))
 
 
-def build_catalog():
-    entries = []
-    source_status = []
-    with ThreadPoolExecutor(max_workers=6) as executor:
-        future_map = {
-            executor.submit(inventory_source, dict(source)): source
-            for source in LIVE_SERVERS
-        }
+def entry_source(entry, sources):
+    if entry.get("source_url"):
+        return entry["source_url"]
+    url = clean_rest_url(entry.get("service_url") or entry.get("url", ""))
+    matches = [source["url"] for source in sources
+               if url == clean_rest_url(source["url"])
+               or url.startswith(clean_rest_url(source["url"]) + "/")]
+    return max(matches, key=len) if matches else None
+
+
+def merge_source_refresh(previous, fresh, status, source, all_sources, verified_at):
+    fresh = [dict(entry, source_url=source["url"]) for entry in fresh]
+    fresh_keys = {entry_key(entry) for entry in fresh}
+    retained = []
+    if status["status"] != "ok":
+        for old in previous.get("entries", []):
+            if entry_source(old, all_sources) == source["url"] and entry_key(old) not in fresh_keys:
+                entry = {key: value for key, value in old.items() if not key.startswith("_")}
+                entry.update(source_url=source["url"], stale=True,
+                             last_verified_at=old.get("last_verified_at", previous.get("generated_at")))
+                retained.append(entry)
+    status = dict(status, checked_at=verified_at, retained_entries=len(retained),
+                  entries=len(fresh) + len(retained))
+    return retained + fresh, status
+
+
+def build_catalog(sources=None, previous=None):
+    sources = list(LIVE_SERVERS if sources is None else sources)
+    previous = previous or {}
+    selected = {source["url"] for source in sources}
+    entries = [{key: value for key, value in entry.items() if not key.startswith("_")}
+               for entry in previous.get("entries", [])
+               if entry_source(entry, LIVE_SERVERS) not in selected]
+    source_status = [status for status in previous.get("sources", []) if status["url"] not in selected]
+    verified_at = datetime.now(timezone.utc).isoformat()
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        future_map = {executor.submit(inventory_source, dict(source)): source for source in sources}
         for future in as_completed(future_map):
+            source = future_map[future]
             source_entries, status = future.result()
+            source_entries, status = merge_source_refresh(
+                previous, source_entries, status, source, LIVE_SERVERS, verified_at)
             entries.extend(source_entries)
             source_status.append(status)
-            print(
-                f"[{status['status']}] {status['institution']} - {status['name']}: "
-                f"{status['entries']} entries",
-                flush=True,
-            )
-
+            print(f"[{status['status']}] {status['institution']} - {status['name']}: "
+                  f"{status['entries']} entries ({status['retained_entries']} retained)", flush=True)
     entries = deduplicate(entries)
     return {
-        "schema_version": CATALOG_SCHEMA_VERSION,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "schema_version": CATALOG_SCHEMA_VERSION, "generated_at": verified_at,
         "entry_count": len(entries),
         "sources": sorted(source_status, key=lambda item: (item["institution"], item["name"])),
         "entries": entries,
     }
 
 
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, default=ROOT / "catalog" / "catalog.json")
+    parser.add_argument("--previous", type=Path, help="Previous inventory; defaults to output if it exists")
+    parser.add_argument("--source", action="append", help="Exact institution name or source URL; repeatable")
+    args = parser.parse_args()
+    sources = list(LIVE_SERVERS)
+    if args.source:
+        sources = [source for source in sources if source["institution"] in args.source or source["url"] in args.source]
+        matched = {value for source in sources for value in (source["institution"], source["url"])}
+        unknown = set(args.source) - matched
+        if unknown:
+            parser.error(f"Unknown sources: {', '.join(sorted(unknown))}")
+    previous_path = args.previous or args.output
+    previous = json.loads(previous_path.read_text(encoding="utf-8")) if previous_path.is_file() else {}
+    catalog = build_catalog(sources, previous)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    pending = args.output.with_suffix(args.output.suffix + ".new")
+    pending.write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    pending.replace(args.output)
+    print(f"Wrote {catalog['entry_count']} entries to {args.output}")
+
+
 if __name__ == "__main__":
-    catalog = build_catalog()
-    output = ROOT / "catalog" / "catalog.json"
-    output.parent.mkdir(exist_ok=True)
-    output.write_text(
-        json.dumps(catalog, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    print(f"Wrote {catalog['entry_count']} entries to {output}")
+    main()

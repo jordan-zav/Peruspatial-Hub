@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.0 - 2026-10-28
+
+- Incorpora directorios públicos verificados de ANA/SNIRH, CENEPRED/SIGRID, MTC/Provías Nacional, MIDAGRI y SENACE, más siete WMS temáticos de SENAMHI.
+- Comparte el lector WMS entre QGIS y el generador, sin asumir el tipo de cadena de PyQt; conserva CRS heredados y parámetros de proveedor.
+- Verifica el contenido de GetCapabilities antes de declarar un WMS disponible.
+- Evita que respuestas atrasadas sobrescriban una recarga más reciente.
+- Conserva y marca entradas anteriores ante fallos parciales, permite actualizaciones selectivas y escribe el inventario de forma atómica.
+- Maneja inventarios y favoritos malformados, añade regresiones y comprobaciones con QGIS real.
+
 ## 1.3.0 - 2026-08-26
 
 - Las consultas de catálogos remotos y la verificación masiva se ejecutan en segundo plano para evitar bloqueos de QGIS.

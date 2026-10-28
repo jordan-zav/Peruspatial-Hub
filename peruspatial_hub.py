@@ -6,8 +6,11 @@ Handles the plugin lifetime, GUI actions, menus, and dock panel loading.
 
 import os
 from qgis.PyQt.QtCore import Qt, QCoreApplication
-from qgis.PyQt.QtWidgets import QAction
 from qgis.PyQt.QtGui import QIcon
+try:
+    from qgis.PyQt.QtGui import QAction
+except ImportError:
+    from qgis.PyQt.QtWidgets import QAction
 from qgis.core import QgsSettings
 
 # Import our panel
@@ -65,6 +68,8 @@ class PeruSpatialHub(object):
         if self.action:
             self.iface.removeToolBarIcon(self.action)
             self.iface.removePluginMenu("PeruSpatial Hub", self.action)
+            self.action.deleteLater()
+            self.action = None
 
         if self.dock_widget:
             self.dock_widget.cancel_background_tasks()

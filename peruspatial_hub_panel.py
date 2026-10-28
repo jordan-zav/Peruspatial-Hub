@@ -11,7 +11,7 @@ import json
 import time
 from html import escape
 
-from qgis.PyQt.QtCore import Qt, QTimer, QUrl, QByteArray, QXmlStreamReader
+from qgis.PyQt.QtCore import Qt, QTimer, QUrl
 from qgis.PyQt.QtNetwork import QNetworkReply, QNetworkRequest
 from qgis.PyQt.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
@@ -22,7 +22,8 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtGui import QFont, QColor, QPalette
 from qgis.core import (
     QgsSettings, QgsRasterLayer, QgsVectorLayer, QgsProject, QgsDataSourceUri,
-    QgsCoordinateReferenceSystem, QgsNetworkAccessManager, QgsApplication, QgsTask
+    QgsCoordinateReferenceSystem, QgsNetworkAccessManager, QgsApplication, QgsTask,
+    QgsProviderRegistry,
 )
 from qgis.gui import QgsAuthConfigSelect
 
@@ -32,7 +33,9 @@ from .peruspatial_hub_urls import (
     service_url as _service_url,
     url_with_json as _url_with_json,
     wms_capabilities_url as _wms_capabilities_url,
+    wms_service_url as _wms_service_url,
 )
+from .peruspatial_hub_ogc import merge_crs, parse_wms_layer_catalog
 from .peruspatial_hub_catalog import (
     load_catalog,
     normalize_search_text as _normalize_catalog_text,
@@ -106,7 +109,7 @@ class AboutDialog(QDialog):
 class ServiceStatusDialog(QDialog):
     """Explains why researched institutions may not appear in the catalog."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, catalog_data=None):
         super().__init__(parent)
         self.setWindowTitle("Fuentes del catálogo")
         self.setMinimumSize(560, 430)
@@ -123,20 +126,34 @@ class ServiceStatusDialog(QDialog):
         details.document().setDefaultStyleSheet(
             "h3 { margin-top: 16px; margin-bottom: 4px; } p { margin-top: 4px; }"
         )
+        catalog_data = catalog_data or {}
+        rows = []
+        for source in catalog_data.get("sources", []):
+            label = escape(f"{source.get('institution', '')} — {source.get('name', '')}")
+            status = escape(str(source.get("status", "sin verificar")))
+            checked = escape(str(source.get("checked_at") or catalog_data.get("generated_at", "sin fecha")))
+            retained = int(source.get("retained_entries", 0))
+            note = f"; {retained} entradas anteriores sin volver a verificar" if retained else ""
+            rows.append(f"<li><b>{label}</b>: {status}{note}<br><small>{checked}</small></li>")
         details.setHtml(
             "<p>Notas de la revisión incluida en el catálogo. Para consultar la "
             "disponibilidad actual, use <b>Herramientas → Verificar servidores</b>.</p>"
             "<h3>OEFA</h3><p>El directorio público PIFA está integrado en el catálogo.</p>"
             "<h3>SUNARP</h3><p>El visor BGR requiere identificación y captcha. "
             "No se identificó un directorio REST de acceso anónimo.</p>"
-            "<h3>CENEPRED</h3><p>En la revisión, el acceso público de SIGRID no pudo "
-            "comunicarse con su servidor interno.</p>"
-            "<h3>COFOPRI</h3><p>La revisión encontró errores de certificado TLS y "
-            "una ruta REST con respuesta HTTP 404.</p>"
+            "<h3>Nuevos directorios públicos</h3><p>ANA/SNIRH, CENEPRED/SIGRID, "
+            "MTC/Provías Nacional, MIDAGRI, SENACE y siete WMS temáticos de SENAMHI están incorporados. La disponibilidad "
+            "del directorio no garantiza todas sus capas.</p>"
+            "<h3>COFOPRI</h3><p>El endpoint evaluado presentó un problema de certificado "
+            "TLS. No se desactivó la validación para registrarlo.</p>"
+            "<h3>INEI y catálogo general SENAMHI</h3><p>Los endpoints generales evaluados "
+            "no respondieron dentro del plazo de la auditoría. Esto no demuestra "
+            "una baja permanente. Los WMS temáticos SENAMHI sí se verificaron e integraron.</p>"
             "<h3>Servicios con acceso privado</h3>"
             "<p>Seleccione un servicio HTTPS y use <b>Herramientas → Configurar acceso "
             "privado</b>. Las credenciales se administran en QGIS. La autenticación "
             "no resuelve fallas de disponibilidad ni permite omitir captchas.</p>"
+            "<h3>Estado del inventario incluido</h3><ul>" + "".join(rows) + "</ul>"
         )
         layout.addWidget(details)
 
@@ -276,7 +293,7 @@ class PeruSpatialHubPanel(QDockWidget):
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setSizes([440, 210])
 
-        catalog_path = os.path.join(self.plugin_dir or "", "catalog", "catalog.json")
+        catalog_path = os.path.join(self.plugin_dir or os.path.dirname(__file__), "catalog", "catalog.json")
         try:
             self.catalog_data = load_catalog(catalog_path)
         except (OSError, ValueError, json.JSONDecodeError):
@@ -467,7 +484,7 @@ class PeruSpatialHubPanel(QDockWidget):
 
     def show_service_status_dialog(self):
         """Shows the research status of unavailable or restricted services."""
-        dialog = ServiceStatusDialog(self)
+        dialog = ServiceStatusDialog(self, self.catalog_data)
         dialog.exec()
 
     # ------------------------------------------------------------------
@@ -534,6 +551,8 @@ class PeruSpatialHubPanel(QDockWidget):
         if data is None:
             return
         data["is_loaded"] = False
+        data["is_loading"] = False
+        data["_request_generation"] = data.get("_request_generation", 0) + 1
         item.setData(0, Qt.ItemDataRole.UserRole, data)
         item.takeChildren()
         dummy = QTreeWidgetItem(item)
@@ -567,7 +586,9 @@ class PeruSpatialHubPanel(QDockWidget):
             favorites = json.loads(str(raw))
         except (TypeError, ValueError, json.JSONDecodeError):
             return []
-        return favorites if isinstance(favorites, list) else []
+        return [entry for entry in favorites if isinstance(entry, dict)
+                and all(isinstance(entry.get(key), str) and entry[key]
+                        for key in ("url", "name"))] if isinstance(favorites, list) else []
 
     def save_favorites(self, favorites):
         """Persist favorites list to QGIS Settings."""
@@ -588,7 +609,7 @@ class PeruSpatialHubPanel(QDockWidget):
         # Store only the essential fields, no internal keys
         storable = {
             k: v for k, v in data.items()
-            if k not in {"_search_text", "_catalog_result", "is_loaded"}
+            if not k.startswith("_") and k not in {"is_loaded", "is_loading"}
         }
         favorites = self.load_favorites()
         key = self._favorite_key(storable)
@@ -668,14 +689,16 @@ class PeruSpatialHubPanel(QDockWidget):
                     return None
                 try:
                     if server["stype"] == "arcgis_rest":
-                        self.fetch_arcgis_json(
+                        metadata = self.fetch_arcgis_json(
                             server["url"],
                             timeout=8,
                             attempts=1,
                             authcfg=auth_configs[server["url"]],
                         )
+                        if not ("folders" in metadata or "services" in metadata):
+                            raise RuntimeError("La respuesta no es un directorio ArcGIS REST")
                     else:
-                        self.read_service_https(
+                        payload = self.read_service_https(
                             _wms_capabilities_url(server["url"]),
                             timeout=8,
                             headers={
@@ -684,6 +707,7 @@ class PeruSpatialHubPanel(QDockWidget):
                             },
                             authcfg=auth_configs[server["url"]],
                         )
+                        self.parse_wms_layer_catalog(payload)
                     results.append((server, True, ""))
                 except Exception as exc:
                     results.append((server, False, str(exc)))
@@ -1114,13 +1138,18 @@ class PeruSpatialHubPanel(QDockWidget):
                 if key not in {"display_type", "path", "search_text", "_search_text"}
             }
             data["_catalog_result"] = True
+            if data.get("stale"):
+                data["description"] = (data.get("description", "") +
+                    " Inventario anterior: no se pudo volver a verificar esta entrada. " +
+                    f"Última referencia: {data.get('last_verified_at') or 'sin fecha'}.")
             item = QTreeWidgetItem(self.search_results_root)
             institution = data.get("institution", "")
             item.setText(0, f"{institution} — {data.get('name', 'Sin nombre')}")
             item.setText(
                 1,
-                entry.get("display_type")
-                or self.friendly_type(data.get("stype", data.get("type", ""))),
+                (entry.get("display_type")
+                 or self.friendly_type(data.get("stype", data.get("type", ""))))
+                + (" · Sin verificar" if data.get("stale") else ""),
             )
             item.setToolTip(0, entry.get("path", data.get("url", "")))
             item.setData(0, Qt.ItemDataRole.UserRole, data)
@@ -1204,6 +1233,8 @@ class PeruSpatialHubPanel(QDockWidget):
         stype = node_data["stype"]
         authcfg = self.auth_config_for_url(url)
         discovering_catalog = self._discovering_catalog
+        request_generation = node_data.get("_request_generation", 0) + 1
+        node_data["_request_generation"] = request_generation
         node_data["is_loading"] = True
         item.setData(0, Qt.ItemDataRole.UserRole, node_data)
         item.takeChildren()
@@ -1258,6 +1289,9 @@ class PeruSpatialHubPanel(QDockWidget):
                 return
             try:
                 if item.treeWidget() is not self.tree_widget:
+                    return
+                current_data = item.data(0, Qt.ItemDataRole.UserRole) or {}
+                if current_data.get("_request_generation") != request_generation:
                     return
             except RuntimeError:
                 return
@@ -1370,91 +1404,13 @@ class PeruSpatialHubPanel(QDockWidget):
 
     @staticmethod
     def parse_wms_layer_catalog(payload):
-        """Parse WMS layer names with Qt's streaming XML reader."""
-        reader = QXmlStreamReader(QByteArray(payload))
-        document_depth = 0
-        capability_depth = None
-        layer_stack = []
-        root_layers = []
-
-        while not reader.atEnd():
-            reader.readNext()
-
-            if reader.isDTD() or reader.isEntityReference():
-                raise RuntimeError(
-                    "GetCapabilities WMS contiene DTD o entidades XML no permitidas"
-                )
-
-            if reader.isStartElement():
-                document_depth += 1
-                element_name = reader.name().toString()
-
-                if element_name == "Capability":
-                    capability_depth = document_depth
-                    continue
-
-                if element_name == "Layer" and capability_depth is not None:
-                    layer_data = {
-                        "title": "",
-                        "name": "",
-                        "crs": [],
-                        "children": [],
-                        "_depth": document_depth,
-                    }
-                    if layer_stack:
-                        layer_stack[-1]["children"].append(layer_data)
-                    else:
-                        root_layers.append(layer_data)
-                    layer_stack.append(layer_data)
-                    continue
-
-                if (
-                    layer_stack
-                    and document_depth == layer_stack[-1]["_depth"] + 1
-                    and element_name in ("Title", "Name", "CRS", "SRS")
-                ):
-                    value = reader.readElementText().strip()
-                    if element_name == "Title":
-                        layer_stack[-1]["title"] = value
-                    elif element_name == "Name":
-                        layer_stack[-1]["name"] = value
-                    elif value:
-                        layer_stack[-1]["crs"].append(value)
-                    # readElementText leaves the reader on this element's end token.
-                    document_depth -= 1
-
-            elif reader.isEndElement():
-                element_name = reader.name().toString()
-                if (
-                    element_name == "Layer"
-                    and layer_stack
-                    and layer_stack[-1]["_depth"] == document_depth
-                ):
-                    layer_stack.pop()
-                if element_name == "Capability":
-                    capability_depth = None
-                document_depth -= 1
-
-        if reader.hasError():
-            raise RuntimeError(
-                f"GetCapabilities WMS no devolvió XML válido: {reader.errorString()}"
-            )
-        if not root_layers:
-            raise RuntimeError("GetCapabilities WMS no contiene un catálogo de capas")
-
-        for root_layer in root_layers:
-            stack = [root_layer]
-            while stack:
-                layer_data = stack.pop()
-                layer_data.pop("_depth", None)
-                stack.extend(layer_data["children"])
-        return root_layers[0]
+        return parse_wms_layer_catalog(payload)
 
     def populate_wms_layers(self, service_item, service_data, payload):
         """Populate a WMS catalog with importable named layers from GetCapabilities."""
         root_layer = self.parse_wms_layer_catalog(payload)
 
-        service_url = _clean_rest_url(service_data["url"])
+        service_url = _wms_service_url(service_data["url"])
         institution = service_data["institution"]
         category = service_data["category"]
         created_layers = 0
@@ -1464,7 +1420,7 @@ class PeruSpatialHubPanel(QDockWidget):
             title = layer_data["title"] or "Grupo WMS"
             layer_name = layer_data["name"]
             own_crs = layer_data["crs"]
-            available_crs = list(dict.fromkeys(own_crs or inherited_crs))
+            available_crs = merge_crs(inherited_crs, own_crs)
             children = layer_data["children"]
 
             if layer_name:
@@ -1743,8 +1699,10 @@ class PeruSpatialHubPanel(QDockWidget):
         authcfg = self.auth_config_for_url(url)
         if authcfg:
             uri.setAuthConfigId(authcfg)
-        layer = QgsRasterLayer(uri.uri(False), name, "arcgisimageserver")
-        if not layer.isValid():
+        providers = QgsProviderRegistry.instance().providerList()
+        provider = "arcgisimageserver" if "arcgisimageserver" in providers else "arcgismapserver"
+        layer = QgsRasterLayer(uri.uri(False), name, provider)
+        if not layer.isValid() and provider != "arcgismapserver":
             layer = QgsRasterLayer(uri.uri(False), name, "arcgismapserver")
         self.apply_metadata_crs(layer, metadata or {})
         return layer
@@ -1769,7 +1727,7 @@ class PeruSpatialHubPanel(QDockWidget):
         authcfg = self.auth_config_for_url(service_url)
         if authcfg:
             uri.setAuthConfigId(authcfg)
-        return QgsRasterLayer(uri.uri(False), name, "wms")
+        return QgsRasterLayer(bytes(uri.encodedUri()).decode("utf-8"), name, "wms")
 
     def _instantiate_layer(self, s):
         """Helper to create and validate a layer object from its metadata dictionary."""

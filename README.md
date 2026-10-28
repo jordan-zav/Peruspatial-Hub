@@ -10,7 +10,7 @@
 Search a bundled offline catalogue, explore public ArcGIS REST and WMS
 directories, and load native raster or vector services without copying viewer URLs.
 
-[![Source 1.3.0](https://img.shields.io/badge/source-1.3.0-2563eb)](metadata.txt)
+[![Source 1.4.0](https://img.shields.io/badge/source-1.4.0-2563eb)](metadata.txt)
 [![Release](https://img.shields.io/github/v/release/jordan-zav/Peruspatial-Hub?color=7c3aed)](https://github.com/jordan-zav/Peruspatial-Hub/releases/latest)
 [![QGIS 3.34+](https://img.shields.io/badge/QGIS-3.34%2B-589632?logo=qgis&logoColor=white)](https://qgis.org/)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-0f766e)](LICENSE)
@@ -21,12 +21,12 @@ directories, and load native raster or vector services without copying viewer UR
 
 1. Download the ZIP from the [latest release](https://github.com/jordan-zav/Peruspatial-Hub/releases/latest).
 2. In QGIS 3.34+, open Plugins → Manage and Install Plugins → Install from ZIP.
-3. Enable PeruSpatial Hub and open Database → PeruSpatial Hub.
+3. Enable PeruSpatial Hub and open Plugins → PeruSpatial Hub, or use its toolbar icon.
 4. Search a keyword or choose a category.
 5. Expand a service and double-click a layer, or use Add to map.
 6. Review institutional attribution and the layer's datum/CRS before analysis.
 
-The source declares 1.3.0. The release badge points to the actually published
+The source declares 1.4.0. The release badge points to the actually published
 ZIP, which may lag behind the source version.
 
 ## Fast local search
@@ -61,8 +61,9 @@ change the ownership or terms of the services it accesses.
 
 ## Institutions and recorded availability
 
-The following checks belong to **15 July 2026**, not to this documentation
-update. External services can change or become unavailable at any time.
+The service audit was repeated on **28 October 2026**. External services can
+change or become unavailable at any time. The inventory records each source's
+check time and retains older entries with an explicit stale flag when a branch fails.
 
 | Institution | Directory / recorded contents |
 | --- | --- |
@@ -76,14 +77,21 @@ update. External services can change or become unavailable at any time.
 | Ministry of Culture | Official SIGDA directory |
 | OSINERGMIN | Electricity, gas, hydrocarbons, mining and mapping |
 | OEFA | PIFA monitoring, inspections, environmental emergencies and interoperable data |
+| ANA / SNIRH | Direct national water-resources directory, in addition to the IDEP mirror |
+| CENEPRED / SIGRID | Public risk and disaster service directory |
+| MTC / Provías Nacional | Road-network and infrastructure services |
+| MIDAGRI | Public rural-cadastre interoperability services |
+| SENAMHI | Seven thematic WMS endpoints: climate classification/sectors, precipitation, precipitation change, life zones, erosion and fires |
+| SENACE | Public interoperability and GeoSENACE environmental-certification/influence-area directories |
 
 IGP includes services used by Zonifica Perú, isotope stations, seismic/volcanic
 monitoring and base maps. REST and WMS layers can be explored directly.
 
 ### Sources not currently integrated
 
-- CENEPRED: SIGRID offers account/email access, but its Web Adaptor could not
-  reach internal servers during the recorded check; this is not merely a REST login prompt.
+- INEI and the general SENAMHI catalogue: the tested endpoints timed out.
+  The seven direct SENAMHI thematic endpoints did respond and are integrated.
+  A timeout does not establish permanent unavailability.
 - COFOPRI: the historical domain had an incomplete certificate chain and its
   REST endpoint returned 404. The plugin does not disable TLS verification.
 - SUNARP: Visor BGR requires DNI, issue date and captcha. No anonymous REST
@@ -91,6 +99,9 @@ monitoring and base maps. REST and WMS layers can be explored directly.
 
 The Sources information keeps these notes visible. The plugin does not bundle
 credentials, bypass captchas or turn off certificate validation.
+
+See [audit and maintenance](docs/AUDIT_20261028.md) for the verification scope,
+corrections and the distinction between a reachable directory and loadable layers.
 
 ## Manual installation
 
@@ -103,7 +114,7 @@ QGIS profile. Typical profile plugin directories are:
 | Linux | ~/.local/share/QGIS/QGIS3/profiles/default/python/plugins |
 | macOS | ~/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins |
 
-Restart QGIS, enable the installed plugin and open its toolbar or Database menu
+Restart QGIS, enable the installed plugin and open its toolbar or Plugins menu
 entry. Use your actual profile directory if it is not named default.
 
 ## Datum and spatial accuracy

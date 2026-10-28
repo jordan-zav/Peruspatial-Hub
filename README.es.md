@@ -10,7 +10,7 @@
 Explora directorios ArcGIS REST y WMS de instituciones públicas, busca en
 un catálogo local y carga servicios ráster o vectoriales con proveedores nativos.
 
-[![Source 1.3.0](https://img.shields.io/badge/source-1.3.0-2563eb)](metadata.txt)
+[![Source 1.4.0](https://img.shields.io/badge/source-1.4.0-2563eb)](metadata.txt)
 [![Release](https://img.shields.io/github/v/release/jordan-zav/Peruspatial-Hub?color=7c3aed)](https://github.com/jordan-zav/Peruspatial-Hub/releases/latest)
 [![Tests](https://img.shields.io/github/actions/workflow/status/jordan-zav/Peruspatial-Hub/tests.yml?branch=main&label=tests)](https://github.com/jordan-zav/Peruspatial-Hub/actions/workflows/tests.yml)
 [![QGIS 3.34+](https://img.shields.io/badge/QGIS-3.34%2B-589632?logo=qgis&logoColor=white)](https://qgis.org/)
@@ -27,10 +27,10 @@ PeruSpatial Hub centraliza el acceso a infraestructuras de datos espaciales de
 instituciones públicas del Perú para geología, geografía, teledetección,
 ambiente, hidrocarburos, hidrogeología, arqueología y gestión territorial.
 
-La rama fuente declara la versión **1.3.0**; la insignia de Release muestra el
+La rama fuente declara la versión **1.4.0**; la insignia de Release muestra el
 último ZIP efectivamente publicado, que puede ir una versión detrás del código.
 
-Versión estable: 1.3.0
+Versión fuente en revisión: 1.4.0
 
 ## Flujo general
 
@@ -84,7 +84,7 @@ PeruSpatial Hub se distribuye bajo la GNU General Public License v3.0. Puede usa
 
 ## Servidores de información integrados y verificados
 
-La disponibilidad indicada fue comprobada el 15 de julio de 2026. Como son servicios externos administrados por cada institución, pueden cambiar o quedar temporalmente fuera de línea sin previo aviso.
+La auditoría de servicios se repitió el 28 de octubre de 2026. Cada fuente del inventario registra su fecha de revisión. Las entradas anteriores se conservan y se marcan si una rama no pudo verificarse de nuevo. Como son servicios externos, su disponibilidad puede cambiar.
 
 *   **INGEMMET (GEOCATMIN)**: dos directorios ArcGIS REST activos con catastro minero, geología, geoquímica y otros servicios publicados por la institución.
 *   **IGN e IDEP**: cartografía nacional y directorios institucionales publicados mediante ArcGIS REST.
@@ -96,11 +96,19 @@ La disponibilidad indicada fue comprobada el 15 de julio de 2026. Como son servi
 *   **Ministerio de Cultura**: directorio oficial SIGDA con los servicios que la institución mantiene publicados.
 *   **OSINERGMIN**: Mapa Energético Minero con servicios de electricidad, gas natural, hidrocarburos, minería y cartografía.
 *   **OEFA**: directorio PIFA con servicios públicos de monitoreo, fiscalización, emergencias ambientales, vigilancia y datos interoperables.
+*   **ANA/SNIRH**: directorio directo de recursos hídricos nacionales, adicional al espejo de IDEP.
+*   **CENEPRED/SIGRID**: directorio público de riesgos, peligros y gestión de desastres.
+*   **MTC/Provías Nacional**: red vial e infraestructura de transportes.
+*   **MIDAGRI**: servicios públicos interoperables del catastro rural.
+*   **SENAMHI**: siete WMS temáticos de clima, precipitación, cambio de precipitación, zonas de vida, erosión e incendios.
+*   **SENACE**: directorios públicos de interoperabilidad y GeoSENACE para certificaciones ambientales y áreas de influencia.
+
+Consulte el [informe de auditoría y mantenimiento](docs/AUDIT_20261028.md) para conocer el alcance de la comprobación y sus límites.
 
 ### Fuentes no integradas actualmente
 
-*   **CENEPRED**: el visor SIGRID ofrece acceso mediante cuenta o correo, pero su ArcGIS Web Adaptor indicó que no podía acceder a ningún servidor interno durante la verificación. No se trata simplemente de una solicitud de login REST.
-*   **COFOPRI**: el dominio histórico responde con una cadena de certificado incompleta y el endpoint REST devuelve 404. No se integrará desactivando la validación TLS.
+*   **INEI y catálogo general SENAMHI**: los endpoints generales evaluados agotaron el plazo. Los siete WMS temáticos SENAMHI sí respondieron y están incorporados. Un timeout no demuestra una baja permanente.
+*   **COFOPRI**: el endpoint evaluado presentó un problema de certificado TLS. No se integró desactivando su validación.
 *   **SUNARP**: el Visor BGR requiere DNI vigente, fecha de emisión y captcha. No existe un directorio REST anónimo verificado que el plugin pueda registrar responsablemente.
 
 El botón de información de la interfaz mantiene este diagnóstico visible dentro de QGIS. El plugin no incluye credenciales, no elude captchas y no desactiva la validación de certificados.
@@ -118,7 +126,7 @@ Dado que el plugin está en desarrollo activo, puede instalarlo manualmente sigu
 2. Copie la carpeta completa peruspatial_hub dentro del directorio plugins anterior.
 3. Abra QGIS, vaya al menú superior **Complementos** > **Administrar e instalar complementos...**
 4. Busque **PeruSpatial Hub** en la sección "Instalados" y active la casilla correspondiente.
-5. Verá un nuevo ícono de globo/base de datos en la barra de herramientas "Base de datos" y una opción en el menú **Base de datos** > **PeruSpatial Hub** para abrir el panel.
+5. Verá el ícono del complemento en la barra de herramientas de complementos y una opción en el menú **Complementos** > **PeruSpatial Hub** para abrir el panel.
 
 ---
 

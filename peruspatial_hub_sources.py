@@ -1,35 +1,116 @@
 """Official catalog sources bundled with PeruSpatial Hub."""
 
+from urllib.parse import urlsplit, urlunsplit
+
+
+def _endpoint(url):
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
+
 CATALOG_CATEGORIES = (
     "Arqueología y Cultura",
+    "Agricultura y Catastro",
     "Clima y Riesgos",
     "Geología y Minería",
     "Hidrología y Agua",
     "Límites y Cartografía",
     "Medio Ambiente",
+    "Transporte e Infraestructura",
 )
 
-ACTIVE_REST_ROOTS = {
-    "https://ide.igp.gob.pe/arcgis/rest/services",
-    "https://geocatmin.ingemmet.gob.pe/arcgis/rest/services",
-    "https://geocatmin.ingemmet.gob.pe/arcgis/rest/services/WGS84_18",
-    "https://www.idep.gob.pe/geoportal/rest/services/SERVICIOS_IGN",
-    "https://www.idep.gob.pe/geoportal/rest/services/INSTITUCIONALES",
-    "https://geoservicios.sernanp.gob.pe/arcgis/rest/services",
-    "https://geoservidorperu.minam.gob.pe/arcgis/rest/services",
-    "https://geo.serfor.gob.pe/geoservicios/rest/services",
-    "https://sigda.cultura.gob.pe/sigda/rest/services",
-    "https://gisem.osinergmin.gob.pe/serverosih/rest/services",
-    "https://pifa.oefa.gob.pe/arcgis/rest/services",
-}
-
-ACTIVE_WMS_ROOTS = {
-    "https://ide.igp.gob.pe/geoserver/ows",
-    "https://ide.igp.gob.pe/geoserver/SCAH_NDVI/wms",
-    "https://ide.igp.gob.pe/geoserver/SCAHanomNDVI/wms",
-}
 
 LIVE_SERVERS = (
+    {
+        "institution": "SENACE",
+        "name": "Certificaciones Ambientales - Interoperabilidad (REST)",
+        "url": "https://geosenace.senace.gob.pe/arcgis/rest/services/INTEROPERABILIDAD",
+        "stype": "arcgis_rest",
+        "category": "Medio Ambiente",
+    },
+    {
+        "institution": "SENACE",
+        "name": "Áreas de Influencia - GeoSENACE (REST)",
+        "url": "https://geosenace.senace.gob.pe/arcgis/rest/services/GEOSENACE",
+        "stype": "arcgis_rest",
+        "category": "Medio Ambiente",
+    },
+    {
+        "institution": "SENAMHI",
+        "name": "Clasificación Climática (WMS)",
+        "url": "https://idesep.senamhi.gob.pe/geoserver/g_05_01/wms",
+        "stype": "wms",
+        "category": "Clima y Riesgos",
+    },
+    {
+        "institution": "SENAMHI",
+        "name": "Precipitación (WMS)",
+        "url": "https://idesep.senamhi.gob.pe/geoserver/g_05_02/wms",
+        "stype": "wms",
+        "category": "Clima y Riesgos",
+    },
+    {
+        "institution": "SENAMHI",
+        "name": "Sectores Climáticos (WMS)",
+        "url": "https://idesep.senamhi.gob.pe/geoserver/g_00_02/wms",
+        "stype": "wms",
+        "category": "Clima y Riesgos",
+    },
+    {
+        "institution": "SENAMHI",
+        "name": "Cambio de Precipitación 2050 (WMS)",
+        "url": "https://idesep.senamhi.gob.pe/geoserver/g_06_13/wms",
+        "stype": "wms",
+        "category": "Clima y Riesgos",
+    },
+    {
+        "institution": "SENAMHI",
+        "name": "Erosión del Suelo (WMS)",
+        "url": "https://idesep.senamhi.gob.pe/geoserver/g_08_03/wms",
+        "stype": "wms",
+        "category": "Medio Ambiente",
+    },
+    {
+        "institution": "SENAMHI",
+        "name": "Zonas de Vida (WMS)",
+        "url": "https://idesep.senamhi.gob.pe/geoserver/g_05_06/wms",
+        "stype": "wms",
+        "category": "Medio Ambiente",
+    },
+    {
+        "institution": "SENAMHI",
+        "name": "Vigilancia de Incendios (WMS)",
+        "url": "https://idesep.senamhi.gob.pe/geoserver/g_09_03/wms",
+        "stype": "wms",
+        "category": "Clima y Riesgos",
+    },
+    {
+        "institution": "ANA (SNIRH)",
+        "name": "Recursos Hídricos - Directorio SNIRH (REST)",
+        "url": "https://geosnirh.ana.gob.pe/server/rest/services",
+        "stype": "arcgis_rest",
+        "category": "Hidrología y Agua",
+    },
+    {
+        "institution": "CENEPRED (SIGRID)",
+        "name": "SIGRID Riesgos y Desastres (REST)",
+        "url": "https://sigrid.cenepred.gob.pe/arcgis/rest/services",
+        "stype": "arcgis_rest",
+        "category": "Clima y Riesgos",
+    },
+    {
+        "institution": "MTC (Provías Nacional)",
+        "name": "Infraestructura y Red Vial Nacional (REST)",
+        "url": "https://giserver.proviasnac.gob.pe/arcgis/rest/services",
+        "stype": "arcgis_rest",
+        "category": "Transporte e Infraestructura",
+    },
+    {
+        "institution": "MIDAGRI",
+        "name": "Catastro Rural - Servicios Interoperables (REST)",
+        "url": "https://winlmprap09.midagri.gob.pe/winlmprap13/rest/services/ogc",
+        "stype": "arcgis_rest",
+        "category": "Agricultura y Catastro",
+    },
     {
         "institution": "INGEMMET (GEOCATMIN)",
         "name": "Servicios REST Generales (WGS84)",
@@ -130,3 +211,9 @@ LIVE_SERVERS = (
         "category": "Medio Ambiente",
     },
 )
+
+# Derived from the same definitions used by the tree and inventory builder.
+ACTIVE_REST_ROOTS = frozenset(_endpoint(source["url"]) for source in LIVE_SERVERS
+                              if source["stype"] == "arcgis_rest")
+ACTIVE_WMS_ROOTS = frozenset(_endpoint(source["url"]) for source in LIVE_SERVERS
+                             if source["stype"] == "wms")

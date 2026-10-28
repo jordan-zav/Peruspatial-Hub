@@ -1,0 +1,395 @@
+﻿{
+    "version":  "1.4.0",
+    "audit_date":  "2026-10-28",
+    "catalog_entries":  12396,
+    "source_count":  27,
+    "stale_entries":  50,
+    "unit_tests_passed":  37,
+    "source_health_checked_at":  "2026-10-28T14:47:02.729498+00:00",
+    "endpoint_checks":  [
+                            {
+                                "institution":  "SENACE",
+                                "name":  "Áreas de Influencia - GeoSENACE (REST)",
+                                "url":  "https://geosenace.senace.gob.pe/arcgis/rest/services/GEOSENACE",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.172,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "SENACE",
+                                "name":  "Certificaciones Ambientales - Interoperabilidad (REST)",
+                                "url":  "https://geosenace.senace.gob.pe/arcgis/rest/services/INTEROPERABILIDAD",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.172,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "SENAMHI",
+                                "name":  "Precipitación (WMS)",
+                                "url":  "https://idesep.senamhi.gob.pe/geoserver/g_05_02/wms",
+                                "stype":  "wms",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.828,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "SENAMHI",
+                                "name":  "Clasificación Climática (WMS)",
+                                "url":  "https://idesep.senamhi.gob.pe/geoserver/g_05_01/wms",
+                                "stype":  "wms",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.843,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "SENAMHI",
+                                "name":  "Cambio de Precipitación 2050 (WMS)",
+                                "url":  "https://idesep.senamhi.gob.pe/geoserver/g_06_13/wms",
+                                "stype":  "wms",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.703,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "SENAMHI",
+                                "name":  "Erosión del Suelo (WMS)",
+                                "url":  "https://idesep.senamhi.gob.pe/geoserver/g_08_03/wms",
+                                "stype":  "wms",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.203,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "SENAMHI",
+                                "name":  "Vigilancia de Incendios (WMS)",
+                                "url":  "https://idesep.senamhi.gob.pe/geoserver/g_09_03/wms",
+                                "stype":  "wms",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.172,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "SENAMHI",
+                                "name":  "Zonas de Vida (WMS)",
+                                "url":  "https://idesep.senamhi.gob.pe/geoserver/g_05_06/wms",
+                                "stype":  "wms",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.204,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "MTC (Provías Nacional)",
+                                "name":  "Infraestructura y Red Vial Nacional (REST)",
+                                "url":  "https://giserver.proviasnac.gob.pe/arcgis/rest/services",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.078,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "ANA (SNIRH)",
+                                "name":  "Recursos Hídricos - Directorio SNIRH (REST)",
+                                "url":  "https://geosnirh.ana.gob.pe/server/rest/services",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.109,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "MIDAGRI",
+                                "name":  "Catastro Rural - Servicios Interoperables (REST)",
+                                "url":  "https://winlmprap09.midagri.gob.pe/winlmprap13/rest/services/ogc",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.125,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "CENEPRED (SIGRID)",
+                                "name":  "SIGRID Riesgos y Desastres (REST)",
+                                "url":  "https://sigrid.cenepred.gob.pe/arcgis/rest/services",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.218,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "IGN",
+                                "name":  "IGN Servicios de Cartografía (REST)",
+                                "url":  "https://www.idep.gob.pe/geoportal/rest/services/SERVICIOS_IGN",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.047,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "IDEP (ANA y otras instituciones)",
+                                "name":  "Servicios Institucionales Oficiales (REST)",
+                                "url":  "https://www.idep.gob.pe/geoportal/rest/services/INSTITUCIONALES",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.063,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "INGEMMET (GEOCATMIN)",
+                                "name":  "Servicios REST Generales (WGS84)",
+                                "url":  "https://geocatmin.ingemmet.gob.pe/arcgis/rest/services",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.25,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "SERNANP",
+                                "name":  "SERNANP Áreas Protegidas (REST)",
+                                "url":  "https://geoservicios.sernanp.gob.pe/arcgis/rest/services",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.047,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "MINCUL",
+                                "name":  "MINCUL Patrimonio y Arqueología (REST)",
+                                "url":  "https://sigda.cultura.gob.pe/sigda/rest/services",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.078,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "MINAM",
+                                "name":  "MINAM Geoservidor (REST)",
+                                "url":  "https://geoservidorperu.minam.gob.pe/arcgis/rest/services",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.062,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "SERFOR",
+                                "name":  "SERFOR Catastro Forestal (REST)",
+                                "url":  "https://geo.serfor.gob.pe/geoservicios/rest/services",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.11,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "INGEMMET (GEOCATMIN)",
+                                "name":  "Servicios REST Huso 18S (WGS84)",
+                                "url":  "https://geocatmin.ingemmet.gob.pe/arcgis/rest/services/WGS84_18",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.343,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "IGP",
+                                "name":  "IGP Directorio Geoespacial (REST)",
+                                "url":  "https://ide.igp.gob.pe/arcgis/rest/services",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.094,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "OSINERGMIN",
+                                "name":  "OSINERGMIN Energía (REST)",
+                                "url":  "https://gisem.osinergmin.gob.pe/serverosih/rest/services",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.328,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "IGP",
+                                "name":  "IGP Condición NDVI - últimos 30 días (WMS)",
+                                "url":  "https://ide.igp.gob.pe/geoserver/SCAH_NDVI/wms?service=wms",
+                                "stype":  "wms",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.079,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "IGP",
+                                "name":  "IGP Catálogo General (WMS)",
+                                "url":  "https://ide.igp.gob.pe/geoserver/ows?service=wms",
+                                "stype":  "wms",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.297,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "IGP",
+                                "name":  "IGP Anomalías NDVI - últimos 30 días (WMS)",
+                                "url":  "https://ide.igp.gob.pe/geoserver/SCAHanomNDVI/wms?service=wms",
+                                "stype":  "wms",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.078,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "OEFA",
+                                "name":  "PIFA Monitoreo y Fiscalización Ambiental (REST)",
+                                "url":  "https://pifa.oefa.gob.pe/arcgis/rest/services",
+                                "stype":  "arcgis_rest",
+                                "status":  "ok",
+                                "http_status":  200,
+                                "seconds":  0.671,
+                                "error":  null
+                            },
+                            {
+                                "institution":  "SENAMHI",
+                                "name":  "Sectores Climáticos (WMS)",
+                                "url":  "https://idesep.senamhi.gob.pe/geoserver/g_00_02/wms",
+                                "stype":  "wms",
+                                "status":  "unavailable",
+                                "http_status":  null,
+                                "seconds":  12.031,
+                                "error":  "\u003curlopen error timed out\u003e"
+                            }
+                        ],
+    "qgis_version":  "3.44.12",
+    "qgis_packaged_checks":  {
+                                 "value":  [
+                                               {
+                                                   "check":  "Generic URI auth configuration",
+                                                   "encoded_authcfg":  true
+                                               },
+                                               {
+                                                   "check":  "Qt XML name binding",
+                                                   "type":  "str",
+                                                   "legacy_toString_available":  false
+                                               },
+                                               {
+                                                   "check":  "All configured sources visible",
+                                                   "count":  27
+                                               },
+                                               {
+                                                   "check":  "WMS importable layer, inherited CRS and vendor query",
+                                                   "passed":  true
+                                               },
+                                               {
+                                                   "check":  "Malformed favorites handled",
+                                                   "passed":  true
+                                               },
+                                               {
+                                                   "check":  "Out-of-order refresh cannot overwrite latest result",
+                                                   "passed":  true
+                                               },
+                                               {
+                                                   "check":  "Callback after removed tree item is safe",
+                                                   "passed":  true
+                                               },
+                                               {
+                                                   "check":  "Local search in real QGIS tree",
+                                                   "results":  200
+                                               },
+                                               {
+                                                   "check":  "Live native providers",
+                                                   "results":  [
+                                                                   {
+                                                                       "institution":  "MIDAGRI",
+                                                                       "url":  "https://winlmprap09.midagri.gob.pe/winlmprap13/rest/services/ogc/Catastro_Rural/MapServer/1",
+                                                                       "valid":  true,
+                                                                       "errors":  [
+
+                                                                                  ],
+                                                                       "provider":  "arcgisfeatureserver"
+                                                                   },
+                                                                   {
+                                                                       "institution":  "MIDAGRI",
+                                                                       "url":  "https://winlmprap09.midagri.gob.pe/winlmprap13/rest/services/ogc/Catastro_Rural/MapServer",
+                                                                       "valid":  true,
+                                                                       "provider":  "arcgismapserver",
+                                                                       "errors":  [
+
+                                                                                  ]
+                                                                   },
+                                                                   {
+                                                                       "institution":  "SENAMHI",
+                                                                       "url":  "https://idesep.senamhi.gob.pe/geoserver/g_06_13/wms",
+                                                                       "valid":  true,
+                                                                       "errors":  [
+
+                                                                                  ],
+                                                                       "provider":  "wms"
+                                                                   },
+                                                                   {
+                                                                       "institution":  "INGEMMET (GEOCATMIN)",
+                                                                       "url":  "https://geocatmin.ingemmet.gob.pe/arcgis/rest/services/PRODUCTO_SATELITAL/Aster_DEM/ImageServer",
+                                                                       "valid":  true,
+                                                                       "errors":  [
+
+                                                                                  ],
+                                                                       "provider":  "arcgismapserver"
+                                                                   }
+                                                               ]
+                                               },
+                                               {
+                                                   "check":  "Live raster rendering over Peru",
+                                                   "results":  [
+                                                                   {
+                                                                       "layer":  "MapServer raster",
+                                                                       "colors":  3,
+                                                                       "errors":  [
+
+                                                                                  ]
+                                                                   },
+                                                                   {
+                                                                       "layer":  "CAMBIO DE PRECIPITACIÓN 2050 - ANUAL",
+                                                                       "colors":  112,
+                                                                       "errors":  [
+
+                                                                                  ]
+                                                                   },
+                                                                   {
+                                                                       "layer":  "Aster_DEM",
+                                                                       "colors":  100,
+                                                                       "errors":  [
+
+                                                                                  ]
+                                                                   }
+                                                               ]
+                                               },
+                                               {
+                                                   "check":  "Unload cancels pending work",
+                                                   "passed":  true
+                                               },
+                                               {
+                                                   "check":  "Packaged plugin controller init, run and unload",
+                                                   "passed":  true
+                                               }
+                                           ],
+                                 "Count":  12
+                             }
+}

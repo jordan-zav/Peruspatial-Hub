@@ -6,6 +6,7 @@ from peruspatial_hub_urls import (
     service_url,
     url_with_json,
     wms_capabilities_url,
+    wms_service_url,
 )
 
 
@@ -38,3 +39,16 @@ def test_wms_capabilities_preserves_vendor_parameters():
         "service": ["WMS"],
         "request": ["GetCapabilities"],
     }
+
+
+def test_nested_arcgis_folders_do_not_repeat_full_service_path():
+    assert service_url("https://example.test/rest/services/A/B", "A/B/Mapa", "MapServer") == "https://example.test/rest/services/A/B/Mapa/MapServer"
+
+
+def test_wms_kvp_keys_are_case_insensitive():
+    query = parse_qs(urlsplit(wms_capabilities_url("https://example.test/wms?SERVICE=wms&REQUEST=GetMap&map=peru")).query)
+    assert query == {"map": ["peru"], "service": ["WMS"], "request": ["GetCapabilities"]}
+
+
+def test_wms_service_keeps_vendor_map_but_removes_request_specific_parameters():
+    assert wms_service_url("https://example.test/wms?map=peru&SERVICE=WMS&request=GetMap&BBOX=0,0,1,1") == "https://example.test/wms?map=peru"

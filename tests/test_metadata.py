@@ -19,7 +19,8 @@ def test_metadata_links_use_canonical_repository():
 
 def test_documentation_uses_metadata_version():
     version = metadata()["version"]
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert f"Versión estable: {version}" in readme
+    for filename in ("README.md", "README.es.md"):
+        readme = (ROOT / filename).read_text(encoding="utf-8")
+        assert f"badge/source-{version}-" in readme
     assert f"## {version} " in changelog

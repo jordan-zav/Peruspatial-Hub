@@ -1,6 +1,9 @@
 import ast
 import json
 from pathlib import Path
+import pytest
+from peruspatial_hub_sources import LIVE_SERVERS, ACTIVE_REST_ROOTS, ACTIVE_WMS_ROOTS, CATALOG_CATEGORIES
+from peruspatial_hub_urls import clean_rest_url
 
 from peruspatial_hub_catalog import load_catalog, normalize_search_text, search_catalog
 
@@ -51,7 +54,7 @@ def test_bundled_catalog_is_large_valid_and_compact():
     assert raw["schema_version"] == 1
     assert raw["entry_count"] == len(raw["entries"])
     assert raw["entry_count"] >= 5000
-    assert len(raw["sources"]) == 14
+    assert {source["url"] for source in raw["sources"]} == {source["url"] for source in LIVE_SERVERS}
     assert all("search_text" not in entry for entry in raw["entries"])
 
     loaded = load_catalog(CATALOG_PATH)
@@ -124,4 +127,24 @@ def test_panel_methods_exist_and_parse_cleanly():
 def test_remote_catalog_and_health_checks_use_background_tasks():
     source = (ROOT / "peruspatial_hub_panel.py").read_text(encoding="utf-8")
     assert source.count("QgsTask.fromFunction(") >= 2
+
+
+@pytest.mark.parametrize("payload", [[], {"schema_version": 1, "entries": [None]},
+    {"schema_version": 1, "entries": [], "sources": [None]},
+    {"schema_version": 1, "entries": [], "entry_count": 1},
+    {"schema_version": 1, "entries": [{"name": "missing URL"}]}])
+def test_corrupt_catalog_fails_cleanly_instead_of_crashing_search(tmp_path, payload):
+    path = tmp_path / "catalog.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_catalog(path)
+
+
+def test_source_roots_and_categories_have_one_definition():
+    assert len({source["url"] for source in LIVE_SERVERS}) == len(LIVE_SERVERS)
+    for source in LIVE_SERVERS:
+        assert source["category"] in CATALOG_CATEGORIES
+        assert source["url"].startswith("https://")
+        active = ACTIVE_REST_ROOTS if source["stype"] == "arcgis_rest" else ACTIVE_WMS_ROOTS
+        assert clean_rest_url(source["url"]) in active
 

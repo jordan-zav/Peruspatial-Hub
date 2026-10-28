@@ -17,6 +17,7 @@ PLUGIN_FILES = (
     "peruspatial_hub.py",
     "peruspatial_hub_panel.py",
     "peruspatial_hub_urls.py",
+    "peruspatial_hub_ogc.py",
     "peruspatial_hub_catalog.py",
     "peruspatial_hub_sources.py",
     "catalog/catalog.json",
@@ -27,6 +28,8 @@ PLUGIN_FILES = (
     "logo_solo.png",
     "LICENSE",
     "README.md",
+    "README.es.md",
+    "docs/AUDIT_20261028.md",
 )
 
 MANDATORY_METADATA_KEYS = (
@@ -193,7 +196,7 @@ def validate_plugin() -> list[str]:
     return errors
 
 
-def build_archive(output_directory: str = "releases") -> Path:
+def build_archive(output_directory: str = "releases", legacy_copy: bool = True) -> Path:
     errors = validate_plugin()
     if errors:
         print("\n[ERROR] Se encontraron fallas en la validacion de QGIS:")
@@ -203,14 +206,15 @@ def build_archive(output_directory: str = "releases") -> Path:
 
     version = plugin_version()
     output_dir = ROOT / output_directory
-    output_dir.mkdir(exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     archive_filename = f"PeruSpatial_Hub_QGIS_v{version}.zip"
     archive = output_dir / archive_filename
 
     # Also build to dist for backward compatibility with CI artifact uploads.
     dist_dir = ROOT / "dist"
-    dist_dir.mkdir(exist_ok=True)
+    if legacy_copy:
+        dist_dir.mkdir(exist_ok=True)
     legacy_archive = dist_dir / f"PeruSpatial-Hub-{version}.zip"
 
     with ZipFile(archive, "w", compression=ZIP_DEFLATED) as bundle:
@@ -219,10 +223,11 @@ def build_archive(output_directory: str = "releases") -> Path:
             bundle.write(source, Path(PLUGIN_NAME) / relative_name)
 
     # Legacy copy in dist (consumed by GitHub Actions upload-artifact step).
-    with ZipFile(legacy_archive, "w", compression=ZIP_DEFLATED) as bundle:
-        for relative_name in PLUGIN_FILES:
-            source = ROOT / relative_name
-            bundle.write(source, Path(PLUGIN_NAME) / relative_name)
+    if legacy_copy:
+        with ZipFile(legacy_archive, "w", compression=ZIP_DEFLATED) as bundle:
+            for relative_name in PLUGIN_FILES:
+                source = ROOT / relative_name
+                bundle.write(source, Path(PLUGIN_NAME) / relative_name)
 
     return archive
 
@@ -241,12 +246,14 @@ def main() -> None:
         default="releases",
         help="Target folder for release ZIP (default: releases).",
     )
+    parser.add_argument("--no-legacy", action="store_true",
+                        help="Do not also write the compatibility archive under dist.")
     args = parser.parse_args()
 
     if args.interactive:
         interactive_metadata_update()
 
-    zip_path = build_archive(args.outdir)
+    zip_path = build_archive(args.outdir, legacy_copy=not args.no_legacy)
     size_kb = zip_path.stat().st_size / 1024
 
     print("\n" + "=" * 60)
