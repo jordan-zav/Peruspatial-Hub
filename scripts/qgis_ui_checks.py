@@ -18,6 +18,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--plugin-root", type=Path, default=ROOT)
     parser.add_argument("--case", action="append")
+    parser.add_argument("--live", action="store_true", help="Also verify all configured sources through a real QGIS task")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
@@ -540,6 +541,31 @@ def main():
     run_case("layout_narrow", lambda c: layout(c, 330, 10, False))
     run_case("layout_large_font", lambda c: layout(c, 480, 16, False))
     run_case("layout_dark", lambda c: layout(c, 480, 11, True))
+
+    if args.live:
+        def live_health(c):
+            reports = []
+            show_results = c.panel.show_health_results
+            def capture(results):
+                reports.extend({"institution": server["institution"], "name": server["name"],
+                    "url": server["url"], "online": ok, "error": error} for server, ok, error in results)
+                def dismiss():
+                    dialog = QApplication.activeModalWidget()
+                    if dialog and dialog.windowTitle() == "Estado de servidores":
+                        dialog.grab().save(str(args.output / "live-health-dialog.png"))
+                        dialog.accept()
+                QTimer.singleShot(100, dismiss)
+                show_results(results)
+            c.panel.show_health_results = capture
+            c.panel.btn_health_check.trigger()
+            assert c.panel._health_check_running
+            wait_until(lambda: not c.panel._background_tasks, timeout=360000)
+            assert len(reports) == len(c.panel.live_servers), reports
+            assert c.panel.btn_health_check.isEnabled() and not c.panel.progress_bar.isVisible()
+            (args.output / "live-health-sources.json").write_text(json.dumps(reports, indent=2, ensure_ascii=False), encoding="utf-8")
+            return {"online": sum(row["online"] for row in reports), "total": len(reports),
+                    "unavailable": [row for row in reports if not row["online"]]}
+        run_case("live_all_sources_health_action", live_health)
     sys.excepthook = old_hook
     failures = [result for result in results if not result["passed"]]
     print(json.dumps({"passed": len(results) - len(failures), "failed": len(failures)}, indent=2), flush=True)

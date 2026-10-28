@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--plugin-root", type=Path, default=ROOT)
+    parser.add_argument("--institution", action="append", help="Limit live provider checks to named institutions")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
 
@@ -145,6 +146,8 @@ def main():
         raster_layers = []
         for institution, layer_type in [("MIDAGRI", "arcgis_map_layer"), ("SENAMHI", "wms_layer"),
                                         ("INGEMMET (GEOCATMIN)", "arcgis_raster_layer")]:
+            if args.institution and institution not in args.institution:
+                continue
             entry = next(entry for entry in panel.catalog_entries
                          if entry["institution"] == institution and entry["type"] == layer_type
                          and not entry.get("stale"))
@@ -168,6 +171,7 @@ def main():
         (args.output / "qgis-smoke.json").write_text(json.dumps(checks, indent=2), encoding="utf-8")
         assert all(result["valid"] for result in live_results), live_results
         render_results = []
+        checks.append({"check": "Live raster rendering over Peru", "results": render_results})
         for index, layer in enumerate(raster_layers):
             settings = QgsMapSettings()
             settings.setLayers([layer])
@@ -183,14 +187,17 @@ def main():
                 time.sleep(.02)
             if job.isActive():
                 job.cancel()
-                raise RuntimeError(f"Rendering timed out: {layer.name()}")
+                render_results.append({"layer": layer.name(), "colors": 0,
+                    "errors": ["Rendering exceeded the 30 second test deadline"], "timeout": True})
+                (args.output / "qgis-smoke.json").write_text(json.dumps(checks, indent=2), encoding="utf-8")
+                continue
             image = job.renderedImage()
             colors = {image.pixel(x, y) for x in range(0, image.width(), 7)
                       for y in range(0, image.height(), 7)}
             errors = [error.message for error in job.errors()]
             image.save(str(args.output / f"native-render-{index}.png"))
             render_results.append({"layer": layer.name(), "colors": len(colors), "errors": errors})
-        checks.append({"check": "Live raster rendering over Peru", "results": render_results})
+            (args.output / "qgis-smoke.json").write_text(json.dumps(checks, indent=2), encoding="utf-8")
         (args.output / "qgis-smoke.json").write_text(json.dumps(checks, indent=2), encoding="utf-8")
         assert all(result["colors"] > 1 and not result["errors"] for result in render_results), render_results
 

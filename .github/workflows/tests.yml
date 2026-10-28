@@ -74,7 +74,7 @@ jobs:
         run: xvfb-run -a /usr/bin/python3 scripts/qgis_ui_checks.py --plugin-root qa-installed/peruspatial_hub --output qa-output/widgets
 
       - name: Install and exercise plugin inside QGIS desktop
-        run: xvfb-run -a /usr/bin/python3 scripts/qgis_desktop_checks.py --qgis-bin /usr/bin/qgis --plugin-root qa-installed/peruspatial_hub --install --output qa-output/desktop
+        run: xvfb-run -a /usr/bin/python3 scripts/qgis_desktop_checks.py --qgis-bin /usr/bin/qgis --qt-platform xcb --plugin-root qa-installed/peruspatial_hub --install --output qa-output/desktop
 
       - name: Upload interface reports and screenshots
         if: always()

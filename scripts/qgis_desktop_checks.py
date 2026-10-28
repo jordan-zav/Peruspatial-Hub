@@ -172,6 +172,7 @@ def main():
     parser.add_argument("--plugin-root", type=Path, default=ROOT)
     parser.add_argument("--qgis-bin", type=Path, required=True)
     parser.add_argument("--mode", choices=["full", "baseline", "no-browser"], default="full")
+    parser.add_argument("--qt-platform", default="offscreen", help="Qt platform for the child desktop (use xcb with Xvfb on Linux)")
     parser.add_argument("--install", action="store_true", help="Install a package copy into the isolated profile and use QGIS' plugin manager")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
@@ -181,7 +182,7 @@ def main():
         shutil.copytree(plugin_root, installed)
         plugin_root = installed
     env = os.environ.copy()
-    env.update(QT_QPA_PLATFORM="offscreen", PERUSPATIAL_DESKTOP_OUTPUT=str(args.output.resolve()),
+    env.update(QT_QPA_PLATFORM=args.qt_platform, PERUSPATIAL_DESKTOP_OUTPUT=str(args.output.resolve()),
         PERUSPATIAL_DESKTOP_PLUGIN=str(plugin_root), PERUSPATIAL_DESKTOP_INSTALL="1" if args.install else "0",
         PERUSPATIAL_DESKTOP_MODE=args.mode,
         QGIS_AUTH_DB_DIR_PATH=str(args.output.resolve() / "auth"))
