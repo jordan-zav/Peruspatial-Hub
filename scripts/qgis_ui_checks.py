@@ -499,10 +499,11 @@ def main():
     run_case("multiple_selection_context_actions", multi_context)
 
     def network_policy(c):
-        from qgis.core import QgsNetworkAccessManager
+        from qgis.core import Qgis, QgsNetworkAccessManager
         from qgis.PyQt.QtCore import QUrl
         from qgis.PyQt.QtNetwork import QNetworkRequest
-        from peru_ui_checks.peruspatial_hub_network import NetworkCompatibility, prepare_request
+        from peru_ui_checks import peruspatial_hub_network as network
+        NetworkCompatibility, prepare_request = network.NetworkCompatibility, network.prepare_request
         url = "https://idesep.senamhi.gob.pe/geoserver/g_06_13/wms"
         def request(target=url):
             value = QNetworkRequest(QUrl(target))
@@ -516,7 +517,9 @@ def main():
             assert guard.processor_id == installed_id
             matched = request()
             QgsNetworkAccessManager.instance().preprocessRequest(matched)
-            assert matched.attribute(QNetworkRequest.Attribute.Http2AllowedAttribute) is False
+            native_hook_available = Qgis.QGIS_VERSION_INT >= 34400
+            assert bool(guard.processor_id) == native_hook_available
+            assert matched.attribute(QNetworkRequest.Attribute.Http2AllowedAttribute) is (not native_hook_available)
             other = request("https://example.test/geoserver/wms")
             QgsNetworkAccessManager.instance().preprocessRequest(other)
             assert other.attribute(QNetworkRequest.Attribute.Http2AllowedAttribute) is True
@@ -529,7 +532,16 @@ def main():
         restored = request()
         QgsNetworkAccessManager.instance().preprocessRequest(restored)
         assert restored.attribute(QNetworkRequest.Attribute.Http2AllowedAttribute) is True
-        return "SENAMHI uses HTTP/1.1; other hosts and the network hook after unload are unaffected"
+        original_qgis = network.Qgis
+        try:
+            network.Qgis = SimpleNamespace(QGIS_VERSION_INT=33404)
+            legacy = NetworkCompatibility()
+            legacy.install()
+            assert legacy.processor_id is None, "Unsafe legacy Python binding must not be invoked"
+        finally:
+            network.Qgis = original_qgis
+        return {"metadata_http1": True, "native_provider_hook": native_hook_available,
+                "other_hosts_unchanged": True, "unload_restores_policy": True, "legacy_binding_avoided": True}
 
     run_case("network_compatibility_scope_and_lifecycle", network_policy)
 

@@ -1,6 +1,6 @@
 """Scoped network compatibility for SENAMHI GeoServer with Qt 5 HTTP/2."""
 
-from qgis.core import QgsNetworkAccessManager
+from qgis.core import Qgis, QgsNetworkAccessManager
 from qgis.PyQt.QtNetwork import QNetworkRequest
 
 from .peruspatial_hub_urls import requires_http1
@@ -21,6 +21,12 @@ class NetworkCompatibility:
         self.processor_id = None
 
     def install(self):
+        # Older SIP bindings invoke Python APIs after releasing the GIL and
+        # can crash on Python 3.12 (QGIS issue #55329). The 3.44 bindings move
+        # those calls outside the released-GIL section. Metadata requests
+        # still use prepare_request directly on every supported version.
+        if Qgis.QGIS_VERSION_INT < 34400:
+            return
         if self.processor_id is None:
             self.processor_id = QgsNetworkAccessManager.setRequestPreprocessor(prepare_request)
 

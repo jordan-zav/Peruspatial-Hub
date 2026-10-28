@@ -67,7 +67,7 @@ def desktop_checks():
         plugin.action.trigger()
         panel = plugin.dock_widget
         assert panel and panel.isVisible()
-        assert plugin.network_compatibility.processor_id is not None
+        assert (plugin.network_compatibility.processor_id is not None) == (Qgis.QGIS_VERSION_INT >= 34400)
         original_panel = panel
         plugin.action.trigger()
         assert plugin.dock_widget is original_panel
