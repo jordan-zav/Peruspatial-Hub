@@ -18,7 +18,7 @@ from qgis.PyQt.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLineEdit, QComboBox, QTreeWidget, QTreeWidgetItem, QPushButton, QToolButton,
     QLabel, QTextBrowser, QMessageBox, QSplitter, QDialog, QDialogButtonBox,
-    QMenu, QProgressBar, QHeaderView
+    QMenu, QProgressBar, QHeaderView, QStyle, QAbstractItemView
 )
 from qgis.PyQt.QtGui import QFont, QColor, QPalette, QIcon
 from qgis.core import (
@@ -441,6 +441,22 @@ class PeruSpatialHubPanel(QDockWidget):
         self.tree_widget.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         self.tree_widget.setColumnWidth(2, 110)
         self.tree_widget.setIndentation(14)
+        self.tree_widget.setMinimumHeight(120)
+        self.tree_widget.setRootIsDecorated(True)
+        self.tree_widget.setExpandsOnDoubleClick(False)
+        self.tree_widget.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.tree_widget.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.tree_widget.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerItem)
+        style = self.tree_widget.style()
+        folder = style.standardIcon(QStyle.StandardPixmap.SP_DirClosedIcon)
+        folder.addPixmap(style.standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon).pixmap(16, 16), QIcon.Mode.Normal, QIcon.State.On)
+        self._tree_icons = {
+            "folder": folder,
+            "raster": QgsApplication.getThemeIcon("/mIconRaster.svg"),
+            "vectorial": QgsApplication.getThemeIcon("/mIconPolygonLayer.svg"),
+            "tabla": QgsApplication.getThemeIcon("/mIconTableLayer.svg"),
+            "file": style.standardIcon(QStyle.StandardPixmap.SP_FileIcon),
+        }
         self.tree_widget.setUniformRowHeights(True)
         self.tree_widget.setAlternatingRowColors(False)
         self.tree_widget.setAccessibleName("Catálogo de servicios y capas")
@@ -579,6 +595,13 @@ class PeruSpatialHubPanel(QDockWidget):
         source = self.entry_source_type(data)
         item.setText(2, source)
         item.setToolTip(2, f"{source} · ArcGIS REST" if source in {"MapServer", "FeatureServer", "ImageServer"} else source)
+        if not data or data.get("type") in self.CONTAINER_TYPES:
+            icon = self._tree_icons["folder"]
+        else:
+            kind = data.get("data_kind") or ("raster" if data.get("type") in {"wms_layer", "arcgis_raster_layer"}
+                                            else "vectorial" if data.get("type") == "arcgis_vector_layer" else "file")
+            icon = self._tree_icons.get(kind, self._tree_icons["file"])
+        item.setIcon(0, icon if not icon.isNull() else self._tree_icons["file"])
 
     def entry_display_type(self, data):
         if self.is_map_service(data):
@@ -1202,16 +1225,19 @@ class PeruSpatialHubPanel(QDockWidget):
             return False
         own_match = self.item_matches_search(item, search_text, selected_category)
         descendant_match = False
+        # A search result is already matched. Expanding it is an explicit
+        # request to browse its contents, whose names need not repeat the query.
+        child_search = "" if data and data.get("_catalog_result") else search_text
 
         for index in range(item.childCount()):
             child = item.child(index)
-            if self.filter_tree_item(child, search_text, selected_category):
+            if self.filter_tree_item(child, child_search, selected_category):
                 descendant_match = True
 
         visible = own_match or descendant_match
         item.setHidden(not visible)
 
-        if search_text and descendant_match:
+        if search_text and descendant_match and not (data or {}).get("_catalog_result"):
             item.setExpanded(True)
         return visible
 
@@ -1265,7 +1291,7 @@ class PeruSpatialHubPanel(QDockWidget):
                     f"Última referencia: {data.get('last_verified_at') or 'sin fecha'}.")
             item = QTreeWidgetItem(self.search_results_root)
             institution = data.get("institution", "")
-            item.setText(0, f"{institution} — {data.get('name', 'Sin nombre')}")
+            item.setText(0, f"{data.get('name', 'Sin nombre')} — {institution}")
             item.setText(
                 1,
                 self.entry_display_type(data)

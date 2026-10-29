@@ -549,6 +549,60 @@ def main():
 
     run_case("mapserver_raster_choices", mapserver_raster_choices)
 
+    def tree_scroll_and_splitter(c):
+        c.panel.populate_catalog_results("geologia", "Todas las Categorías")
+        node = c.panel.search_results_root.child(0)
+        select(c.panel, [node])
+        original = dict(node.data(0, Qt.ItemDataRole.UserRole))
+        c.panel.splitter.setSizes([1, 2000])
+        app.processEvents()
+        assert c.panel.tree_widget.height() >= 120, f"Tree collapses to {c.panel.tree_widget.height()} px"
+        assert not node.icon(0).isNull(), "Service folders need a visible folder icon"
+        c.panel.splitter.setSizes([440, 210])
+        c.panel.tree_widget.setColumnWidth(1, 350)
+        horizontal = c.panel.tree_widget.horizontalScrollBar()
+        vertical = c.panel.tree_widget.verticalScrollBar()
+        for bar in (horizontal, vertical):
+            bar.setValue(bar.maximum())
+            app.processEvents()
+            bar.setValue(0)
+        assert node.data(0, Qt.ItemDataRole.UserRole) == original
+        assert c.panel.tree_widget.currentItem() is node
+        assert c.panel.metadata_panel.toPlainText().startswith(original["name"])
+        return {"tree_minimum_height": c.panel.tree_widget.minimumHeight(), "rows": c.panel.search_results_root.childCount(),
+                "selection_survives_scrolling": True}
+
+    run_case("tree_scroll_and_splitter", tree_scroll_and_splitter)
+
+    def expand_search_result_contents(c):
+        service = dict(layer("SERV_GEOLOGIA"), type="arcgis_service", service_kind="MapServer",
+                       stype="arcgis_mapserver", url="https://example.test/rest/services/SERV_GEOLOGIA/MapServer",
+                       _catalog_result=True, is_loaded=False)
+        c.panel.search_input.setText("SERV_GEOLOGIA")
+        root = fixtures(c.panel, [service])[0]
+        c.panel.set_item_metadata(root, service)
+        records = [{"id": 0, "name": "Unidades", "type": "Group Layer", "subLayerIds": [1], "parentLayerId": -1},
+                   {"id": 1, "name": "Contactos", "type": "Feature Layer", "parentLayerId": 0,
+                    "geometryType": "esriGeometryPolyline", "fields": []}]
+        c.panel.fetch_arcgis_json = lambda *a, **kw: {"layers": records}
+        select(c.panel, [root])
+        QTest.keyClick(c.panel.tree_widget, Qt.Key.Key_Right)
+        wait_until(lambda: not c.panel._background_tasks)
+        group = root.child(0)
+        assert root.isExpanded() and group.text(0) == "Unidades" and not group.isHidden()
+        select(c.panel, [group])
+        QTest.keyClick(c.panel.tree_widget, Qt.Key.Key_Right)
+        leaf = group.child(0)
+        assert not leaf.isHidden() and leaf.text(0) == "Contactos"
+        assert leaf.text(1) == "Vectorial" and leaf.text(2) == "MapServer"
+        assert not group.icon(0).isNull() and not leaf.icon(0).isNull()
+        root.setExpanded(False)
+        c.panel.filter_services()
+        assert not root.isExpanded(), "Filtering must respect an explicitly collapsed result"
+        return "Expanding a matched service exposes its folders and layers even when their names do not repeat the search"
+
+    run_case("expand_search_result_contents", expand_search_result_contents)
+
     def invalid_service_inventory(c):
         entry = dict(layer("Cyclic service"), type="arcgis_service", stype="arcgis_mapserver",
                      service_kind="MapServer", url="https://example.test/rest/services/Test/MapServer", is_loaded=False)
