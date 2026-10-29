@@ -581,6 +581,7 @@ def main():
         c.panel.search_input.setText("SERV_GEOLOGIA")
         root = fixtures(c.panel, [service])[0]
         c.panel.set_item_metadata(root, service)
+        QTreeWidgetItem(root).setText(0, "Expandir para consultar en vivo...")
         records = [{"id": 0, "name": "Unidades", "type": "Group Layer", "subLayerIds": [1], "parentLayerId": -1},
                    {"id": 1, "name": "Contactos", "type": "Feature Layer", "parentLayerId": 0,
                     "geometryType": "esriGeometryPolyline", "fields": []}]
@@ -599,6 +600,10 @@ def main():
         root.setExpanded(False)
         c.panel.filter_services()
         assert not root.isExpanded(), "Filtering must respect an explicitly collapsed result"
+        c.panel.tree_widget.scrollToItem(root)
+        QTest.mouseDClick(c.panel.tree_widget.viewport(), Qt.MouseButton.LeftButton,
+                         pos=c.panel.tree_widget.visualItemRect(root).center())
+        assert root.isExpanded(), "A double click must expand once rather than toggle twice"
         return "Expanding a matched service exposes its folders and layers even when their names do not repeat the search"
 
     run_case("expand_search_result_contents", expand_search_result_contents)
