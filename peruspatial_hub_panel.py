@@ -556,15 +556,15 @@ class PeruSpatialHubPanel(QDockWidget):
 
     def entry_display_type(self, data):
         if self.is_map_service(data):
-            return "Mapa ráster · MapServer"
+            return "Ráster"
         if data.get("type") == "wms_layer":
-            return "Mapa ráster · WMS"
+            return "Ráster"
         if data.get("service_kind") == "ImageServer":
-            return "Ráster · ImageServer"
+            return "Ráster"
         kind = data.get("data_kind")
         if kind in {"vectorial", "raster", "tabla"}:
             label = {"vectorial": "Vectorial", "raster": "Ráster", "tabla": "Tabla"}[kind]
-            return f"{label} · {data.get('service_kind') or 'REST'}"
+            return label
         return self.friendly_type(data.get("stype", data.get("type", "")))
 
     def show_context_menu(self, position):
@@ -737,7 +737,7 @@ class PeruSpatialHubPanel(QDockWidget):
             fav_item = QTreeWidgetItem(self.favorites_root)
             inst = fav.get("institution", "")
             fav_item.setText(0, f"{inst} — {fav.get('name', 'Sin nombre')}" if inst else fav.get("name", "Sin nombre"))
-            fav_item.setText(1, self.friendly_type(fav.get("stype", fav.get("type", ""))))
+            fav_item.setText(1, self.entry_display_type(fav))
             fav_item.setToolTip(0, fav.get("url", ""))
             fav_item.setData(0, Qt.ItemDataRole.UserRole, fav)
             # If it is a container type, allow live expansion
@@ -1093,7 +1093,7 @@ class PeruSpatialHubPanel(QDockWidget):
             server_item = QTreeWidgetItem(explorer_root)
             server_item.setText(0, f"{s['institution']} - {s['name']}")
             is_arcgis = s["stype"] == "arcgis_rest"
-            server_item.setText(1, "ArcGIS REST" if is_arcgis else "WMS")
+            server_item.setText(1, "Institución" if is_arcgis else "Servicio")
             server_item.setData(0, Qt.ItemDataRole.UserRole, {
                 "type": "server" if is_arcgis else "ogc_service",
                 "stype": s["stype"],
@@ -1125,13 +1125,13 @@ class PeruSpatialHubPanel(QDockWidget):
     def friendly_type(self, type_str):
         """Translates technical connection type to friendly name."""
         mapping = {
-            "arcgis_mapserver": "Mapa ráster · MapServer",
-            "arcgisfeatureserver": "Vectorial REST",
-            "arcgis_imageserver": "Raster REST",
-            "arcgis_map_layer": "Capa REST",
-            "arcgis_vector_layer": "Vectorial REST",
-            "arcgis_raster_layer": "Raster REST",
-            "wms": "Servidor WMS",
+            "arcgis_mapserver": "Ráster",
+            "arcgisfeatureserver": "Vectorial",
+            "arcgis_imageserver": "Ráster",
+            "arcgis_map_layer": "Por consultar",
+            "arcgis_vector_layer": "Vectorial",
+            "arcgis_raster_layer": "Ráster",
+            "wms": "Servicio",
         }
         return mapping.get(type_str, type_str)
 
@@ -1419,7 +1419,7 @@ class PeruSpatialHubPanel(QDockWidget):
 
                         f_item = QTreeWidgetItem(item)
                         f_item.setText(0, folder_name)
-                        f_item.setText(1, "Carpeta REST")
+                        f_item.setText(1, "Carpeta")
                         f_item.setFont(0, self.section_font())
                         f_item.setData(0, Qt.ItemDataRole.UserRole, {
                             "type": "folder",
@@ -1533,7 +1533,7 @@ class PeruSpatialHubPanel(QDockWidget):
             if layer_name:
                 tree_item = QTreeWidgetItem(parent_item)
                 tree_item.setText(0, title)
-                tree_item.setText(1, "Capa WMS")
+                tree_item.setText(1, "Ráster")
                 tree_item.setData(0, Qt.ItemDataRole.UserRole, {
                     "type": "wms_layer",
                     "stype": "wms",
@@ -1554,7 +1554,7 @@ class PeruSpatialHubPanel(QDockWidget):
                 if children and parent_item is not service_item:
                     group_item = QTreeWidgetItem(parent_item)
                     group_item.setText(0, title)
-                    group_item.setText(1, "Grupo WMS")
+                    group_item.setText(1, "Grupo")
                     group_item.setFont(0, self.section_font())
                     group_item.setData(0, Qt.ItemDataRole.UserRole, {
                         "type": "wms_group",
@@ -1609,7 +1609,7 @@ class PeruSpatialHubPanel(QDockWidget):
             tree_item.setText(0, layer_name)
 
             if is_group:
-                tree_item.setText(1, "Grupo REST")
+                tree_item.setText(1, "Grupo")
                 tree_item.setFont(0, self.section_font())
                 tree_item.setData(0, Qt.ItemDataRole.UserRole, {
                     "type": "arcgis_group",
@@ -1720,6 +1720,9 @@ class PeruSpatialHubPanel(QDockWidget):
             details = f"<p>{escape(str(description))}</p>" if description else ""
             tags_html = f"<p>Etiquetas: {escape(tags)}</p>" if tags else ""
             metadata_facts = []
+            protocol = s.get("service_kind") or ("WMS" if s.get("stype") == "wms" else None)
+            if protocol:
+                metadata_facts.append(f"Conexión: {protocol}")
             if s.get("is_table") or s.get("data_kind") == "tabla":
                 metadata_facts.append("Tabla sin geometría")
             elif s.get("geometry_type"):

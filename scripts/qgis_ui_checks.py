@@ -526,7 +526,7 @@ def main():
         node = fixtures(c.panel, [service])[0]
         select(c.panel, [node])
         assert c.panel.btn_add_layer.isEnabled() and c.panel.btn_add_layer.text() == "Añadir mapa ráster"
-        assert c.panel.entry_display_type(service) == "Mapa ráster · MapServer"
+        assert c.panel.entry_display_type(service) == "Ráster"
         calls = []
         def raster(url, layer_id, name, metadata=None):
             calls.append((url, layer_id))
@@ -629,7 +629,7 @@ def main():
             "layers": [{"id": 0, "name": "Declared vector", "type": "Feature Layer", "parentLayerId": -1}]})
         root.setExpanded(True)
         leaf = root.child(0)
-        assert leaf.text(1) == "Vectorial · MapServer"
+        assert leaf.text(1) == "Vectorial"
         select(c.panel, [leaf])
         assert c.panel.crs_banner.isVisible()
         return "Declared WKT recovers a missing CRS; valid CRS stays intact; explicit PSAD56 gets the datum notice"
