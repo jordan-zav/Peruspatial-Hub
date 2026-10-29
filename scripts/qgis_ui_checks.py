@@ -521,6 +521,11 @@ def main():
     run_case("inventory_metadata_details", inventory_metadata_details)
 
     def mapserver_raster_choices(c):
+        c.panel.populate_catalog_results("100k geologia", "Todas las Categorías")
+        first = c.panel.search_results_root.child(0)
+        assert c.panel.tree_widget.headerItem().text(1) == "Tipo de dato"
+        assert c.panel.tree_widget.headerItem().text(2) == "Fuente"
+        assert first.text(1) == "Ráster" and first.text(2) == "MapServer"
         service = dict(layer("SERV_GEOLOGIA_100K"), type="arcgis_service", service_kind="MapServer",
                        stype="arcgis_mapserver", url="https://example.test/rest/services/geologia/MapServer")
         node = fixtures(c.panel, [service])[0]
@@ -630,6 +635,7 @@ def main():
         root.setExpanded(True)
         leaf = root.child(0)
         assert leaf.text(1) == "Vectorial"
+        assert leaf.text(2) == "MapServer"
         select(c.panel, [leaf])
         assert c.panel.crs_banner.isVisible()
         return "Declared WKT recovers a missing CRS; valid CRS stays intact; explicit PSAD56 gets the datum notice"

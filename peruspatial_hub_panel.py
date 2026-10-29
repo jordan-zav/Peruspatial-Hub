@@ -433,11 +433,13 @@ class PeruSpatialHubPanel(QDockWidget):
     def init_tree_widget(self):
         """A readable catalog with a flexible name column."""
         self.tree_widget = QTreeWidget()
-        self.tree_widget.setHeaderLabels(["Catálogo / Institución", "Tipo"])
+        self.tree_widget.setHeaderLabels(["Catálogo / Institución", "Tipo de dato", "Fuente"])
         self.tree_widget.header().setStretchLastSection(False)
         self.tree_widget.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.tree_widget.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         self.tree_widget.setColumnWidth(1, 100)
+        self.tree_widget.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        self.tree_widget.setColumnWidth(2, 110)
         self.tree_widget.setIndentation(14)
         self.tree_widget.setUniformRowHeights(True)
         self.tree_widget.setAlternatingRowColors(False)
@@ -554,6 +556,30 @@ class PeruSpatialHubPanel(QDockWidget):
     def can_add_layer(self, data):
         return data.get("type") in self.LAYER_TYPES or self.is_map_service(data)
 
+    @staticmethod
+    def entry_source_type(data):
+        if not data:
+            return ""
+        if data.get("service_kind") in {"MapServer", "FeatureServer", "ImageServer"}:
+            return data["service_kind"]
+        if data.get("stype") == "wms" or data.get("type") == "wms_layer":
+            return "WMS"
+        try:
+            components = urllib.parse.urlsplit(data.get("service_url") or data.get("url", "")).path.split("/")
+        except ValueError:
+            components = []
+        for component in components:
+            if component in {"MapServer", "FeatureServer", "ImageServer"}:
+                return component
+        return {"arcgis_rest": "REST", "arcgis_mapserver": "MapServer",
+                "arcgisfeatureserver": "FeatureServer", "arcgis_imageserver": "ImageServer"}.get(data.get("stype"), "")
+
+    def set_item_metadata(self, item, data):
+        item.setData(0, Qt.ItemDataRole.UserRole, data)
+        source = self.entry_source_type(data)
+        item.setText(2, source)
+        item.setToolTip(2, f"{source} · ArcGIS REST" if source in {"MapServer", "FeatureServer", "ImageServer"} else source)
+
     def entry_display_type(self, data):
         if self.is_map_service(data):
             return "Ráster"
@@ -636,7 +662,7 @@ class PeruSpatialHubPanel(QDockWidget):
         data["is_loaded"] = False
         data["is_loading"] = False
         data["_request_generation"] = data.get("_request_generation", 0) + 1
-        item.setData(0, Qt.ItemDataRole.UserRole, data)
+        self.set_item_metadata(item, data)
         item.takeChildren()
         dummy = QTreeWidgetItem(item)
         dummy.setText(0, "Recargando...")
@@ -739,11 +765,11 @@ class PeruSpatialHubPanel(QDockWidget):
             fav_item.setText(0, f"{inst} — {fav.get('name', 'Sin nombre')}" if inst else fav.get("name", "Sin nombre"))
             fav_item.setText(1, self.entry_display_type(fav))
             fav_item.setToolTip(0, fav.get("url", ""))
-            fav_item.setData(0, Qt.ItemDataRole.UserRole, fav)
+            self.set_item_metadata(fav_item, fav)
             # If it is a container type, allow live expansion
             if fav.get("type") in self.CONTAINER_TYPES:
                 fav["is_loaded"] = False
-                fav_item.setData(0, Qt.ItemDataRole.UserRole, fav)
+                self.set_item_metadata(fav_item, fav)
                 dummy = QTreeWidgetItem(fav_item)
                 dummy.setText(0, "Expandir para consultar en vivo...")
 
@@ -1068,7 +1094,7 @@ class PeruSpatialHubPanel(QDockWidget):
         self.search_results_root.setText(0, "Resultados de búsqueda")
         self.search_results_root.setText(1, "Local")
         self.search_results_root.setFont(0, self.section_font())
-        self.search_results_root.setData(0, Qt.ItemDataRole.UserRole, None)
+        self.set_item_metadata(self.search_results_root, None)
         self.search_results_root.setHidden(True)
         
         # The old fixed layer URLs contained many retired services. Start from
@@ -1076,7 +1102,7 @@ class PeruSpatialHubPanel(QDockWidget):
         explorer_root = QTreeWidgetItem(self.tree_widget)
         explorer_root.setText(0, "Servidores disponibles")
         explorer_root.setFont(0, self.section_font())
-        explorer_root.setData(0, Qt.ItemDataRole.UserRole, None)
+        self.set_item_metadata(explorer_root, None)
 
 
         self.live_servers = [
@@ -1094,7 +1120,7 @@ class PeruSpatialHubPanel(QDockWidget):
             server_item.setText(0, f"{s['institution']} - {s['name']}")
             is_arcgis = s["stype"] == "arcgis_rest"
             server_item.setText(1, "Institución" if is_arcgis else "Servicio")
-            server_item.setData(0, Qt.ItemDataRole.UserRole, {
+            self.set_item_metadata(server_item, {
                 "type": "server" if is_arcgis else "ogc_service",
                 "stype": s["stype"],
                 "url": s["url"],
@@ -1112,7 +1138,7 @@ class PeruSpatialHubPanel(QDockWidget):
         self.favorites_root = QTreeWidgetItem(self.tree_widget)
         self.favorites_root.setText(0, "Favoritos")
         self.favorites_root.setFont(0, self.section_font())
-        self.favorites_root.setData(0, Qt.ItemDataRole.UserRole, None)
+        self.set_item_metadata(self.favorites_root, None)
         self.populate_favorites_tree()
 
         # Show institutions immediately; remote folders remain closed and are
@@ -1246,11 +1272,11 @@ class PeruSpatialHubPanel(QDockWidget):
                 + (" · Sin verificar" if data.get("stale") else ""),
             )
             item.setToolTip(0, entry.get("path", data.get("url", "")))
-            item.setData(0, Qt.ItemDataRole.UserRole, data)
+            self.set_item_metadata(item, data)
 
             if data.get("type") in {"server", "folder", "arcgis_service", "ogc_service"}:
                 data["is_loaded"] = False
-                item.setData(0, Qt.ItemDataRole.UserRole, data)
+                self.set_item_metadata(item, data)
                 dummy = QTreeWidgetItem(item)
                 dummy.setText(0, "Expandir para consultar en vivo...")
 
@@ -1334,7 +1360,7 @@ class PeruSpatialHubPanel(QDockWidget):
         request_generation = node_data.get("_request_generation", 0) + 1
         node_data["_request_generation"] = request_generation
         node_data["is_loading"] = True
-        item.setData(0, Qt.ItemDataRole.UserRole, node_data)
+        self.set_item_metadata(item, node_data)
         item.takeChildren()
         loading_node = QTreeWidgetItem(item)
         loading_node.setText(0, "Cargando...")
@@ -1342,7 +1368,7 @@ class PeruSpatialHubPanel(QDockWidget):
             if loading_node.parent() is item:
                 item.removeChild(loading_node)
             node_data["is_loading"] = False
-            item.setData(0, Qt.ItemDataRole.UserRole, node_data)
+            self.set_item_metadata(item, node_data)
             return
 
         def worker(task):
@@ -1421,7 +1447,7 @@ class PeruSpatialHubPanel(QDockWidget):
                         f_item.setText(0, folder_name)
                         f_item.setText(1, "Carpeta")
                         f_item.setFont(0, self.section_font())
-                        f_item.setData(0, Qt.ItemDataRole.UserRole, {
+                        self.set_item_metadata(f_item, {
                             "type": "folder",
                             "stype": "arcgis_rest",
                             "url": furl,
@@ -1458,7 +1484,7 @@ class PeruSpatialHubPanel(QDockWidget):
                         s_item = QTreeWidgetItem(item)
                         s_item.setText(0, sname_short)
                         s_item.setText(1, self.friendly_type(friendly_type))
-                        s_item.setData(0, Qt.ItemDataRole.UserRole, {
+                        self.set_item_metadata(s_item, {
                             "type": "arcgis_raster_layer" if is_image else "arcgis_service",
                             "stype": friendly_type,
                             "service_kind": stype_str,
@@ -1487,7 +1513,7 @@ class PeruSpatialHubPanel(QDockWidget):
             finally:
                 node_data["is_loaded"] = loaded_ok
                 node_data["is_loading"] = False
-                item.setData(0, Qt.ItemDataRole.UserRole, node_data)
+                self.set_item_metadata(item, node_data)
                 if self.search_input.text().strip() and not self._discovering_catalog:
                     self.filter_services()
 
@@ -1534,7 +1560,7 @@ class PeruSpatialHubPanel(QDockWidget):
                 tree_item = QTreeWidgetItem(parent_item)
                 tree_item.setText(0, title)
                 tree_item.setText(1, "Ráster")
-                tree_item.setData(0, Qt.ItemDataRole.UserRole, {
+                self.set_item_metadata(tree_item, {
                     "type": "wms_layer",
                     "stype": "wms",
                     "url": service_data["url"],
@@ -1556,7 +1582,7 @@ class PeruSpatialHubPanel(QDockWidget):
                     group_item.setText(0, title)
                     group_item.setText(1, "Grupo")
                     group_item.setFont(0, self.section_font())
-                    group_item.setData(0, Qt.ItemDataRole.UserRole, {
+                    self.set_item_metadata(group_item, {
                         "type": "wms_group",
                         "stype": "wms",
                         "url": service_data["url"],
@@ -1611,7 +1637,7 @@ class PeruSpatialHubPanel(QDockWidget):
             if is_group:
                 tree_item.setText(1, "Grupo")
                 tree_item.setFont(0, self.section_font())
-                tree_item.setData(0, Qt.ItemDataRole.UserRole, {
+                self.set_item_metadata(tree_item, {
                     "type": "arcgis_group",
                     "stype": service_data["stype"],
                     "url": service_url,
@@ -1633,7 +1659,7 @@ class PeruSpatialHubPanel(QDockWidget):
                 display_type = {"tabla": "Tabla REST", "vectorial": "Vectorial REST",
                                 "raster": "Raster REST", "mixto": "Raster/Vectorial REST"}[data_kind]
                 tree_item.setText(1, display_type)
-                tree_item.setData(0, Qt.ItemDataRole.UserRole, {
+                self.set_item_metadata(tree_item, {
                     "type": leaf_type,
                     "stype": leaf_type,
                     "data_kind": data_kind,
