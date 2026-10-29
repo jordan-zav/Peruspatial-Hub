@@ -110,8 +110,16 @@ def desktop_checks():
             record("native_browser_connections", native)
 
         # Exercise the Add button against the real project's layer tree and canvas.
-        panel.tree_widget.clear()
-        node = QTreeWidgetItem(panel.tree_widget)
+        panel.search_input.clear()
+        panel.search_timer.stop()
+        panel.apply_catalog_search()
+        panel.favorites_root.takeChildren()
+        folder = QTreeWidgetItem(panel.favorites_root)
+        folder.setText(0, "Desktop folder")
+        panel.set_item_metadata(folder, {"type": "arcgis_group", "name": "Desktop folder"})
+        panel.favorites_root.setExpanded(True)
+        folder.setExpanded(True)
+        node = QTreeWidgetItem(folder)
         node.setText(0, "Desktop fixture")
         node.setData(0, Qt.ItemDataRole.UserRole, {"type": "arcgis_vector_layer", "stype": "arcgisfeatureserver",
             "name": "Desktop fixture", "url": "https://example.test/rest/services/Test/FeatureServer/0"})
@@ -126,7 +134,10 @@ def desktop_checks():
         assert not panel.isVisible()
         plugin.action.trigger()
         assert plugin.dock_widget is original_panel and panel.isVisible()
-        record("desktop_close_and_reopen", "Closing and reopening preserves the dock instance")
+        QTest.qWait(240)
+        assert folder.isExpanded() and panel.favorites_root.isExpanded()
+        assert panel.tree_widget.currentItem() is node and not node.isHidden()
+        record("desktop_close_and_reopen", "Closing and reopening preserves the dock, expanded folders and selected layer")
         iface.mainWindow().grab().save(str(output / "desktop-loaded.png"))
         if managed:
             assert utils.unloadPlugin("peruspatial_hub")
@@ -137,18 +148,22 @@ def desktop_checks():
         assert plugin.dock_widget is None and plugin.action is None
         assert plugin.network_compatibility.processor_id is None
         record("desktop_unload", "Plugin dock and action are removed from the real interface")
-        if managed:
-            assert utils.loadPlugin("peruspatial_hub") and utils.startPlugin("peruspatial_hub")
-            plugin = utils.plugins["peruspatial_hub"]
-        else:
-            plugin.initGui()
-        plugin.action.trigger()
-        assert plugin.dock_widget is not None and plugin.dock_widget.isVisible()
-        if managed:
-            assert utils.unloadPlugin("peruspatial_hub")
-        else:
-            plugin.unload()
-        record("desktop_reload", "A fresh controller UI works after unload")
+        reload_cycles = int(os.environ.get("PERUSPATIAL_DESKTOP_CYCLES", "1"))
+        for _ in range(reload_cycles):
+            if managed:
+                assert utils.loadPlugin("peruspatial_hub") and utils.startPlugin("peruspatial_hub")
+                plugin = utils.plugins["peruspatial_hub"]
+            else:
+                plugin.initGui()
+            plugin.action.trigger()
+            assert plugin.dock_widget is not None and plugin.dock_widget.isVisible()
+            assert len(QgsProject.instance().mapLayers()) == 1, "Plugin reload changed the user's project layers"
+            if managed:
+                assert utils.unloadPlugin("peruspatial_hub")
+            else:
+                plugin.unload()
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        record("desktop_reload", {"cycles": reload_cycles, "project_layers_preserved": True})
         assert not errors, errors
         record("qt_slot_exceptions", {"count": len(errors)})
     except Exception:
@@ -176,6 +191,7 @@ def main():
     parser.add_argument("--mode", choices=["full", "baseline", "no-browser"], default="full")
     parser.add_argument("--qt-platform", default="offscreen", help="Qt platform for the child desktop (use xcb with Xvfb on Linux)")
     parser.add_argument("--install", action="store_true", help="Install a package copy into the isolated profile and use QGIS' plugin manager")
+    parser.add_argument("--reload-cycles", type=int, choices=range(1, 21), default=1, metavar="1..20")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     plugin_root = args.plugin_root.resolve()
@@ -187,6 +203,7 @@ def main():
     env.update(QT_QPA_PLATFORM=args.qt_platform, PERUSPATIAL_DESKTOP_OUTPUT=str(args.output.resolve()),
         PERUSPATIAL_DESKTOP_PLUGIN=str(plugin_root), PERUSPATIAL_DESKTOP_INSTALL="1" if args.install else "0",
         PERUSPATIAL_DESKTOP_MODE=args.mode,
+        PERUSPATIAL_DESKTOP_CYCLES=str(args.reload_cycles),
         QGIS_AUTH_DB_DIR_PATH=str(args.output.resolve() / "auth"))
     (args.output / "auth").mkdir(exist_ok=True)
     command = [str(args.qgis_bin), "--profiles-path", str(args.output.resolve() / "profiles"),

@@ -71,10 +71,10 @@ jobs:
         run: python3 -m zipfile -e qa-package/dist/PeruSpatial-Hub-*.zip qa-installed
 
       - name: Exercise real Qt widgets and background tasks
-        run: xvfb-run -a /usr/bin/python3 scripts/qgis_ui_checks.py --plugin-root qa-installed/peruspatial_hub --output qa-output/widgets
+        run: xvfb-run -a /usr/bin/python3 scripts/qgis_ui_checks.py --plugin-root qa-installed/peruspatial_hub --stress --stress-iterations 8 --output qa-output/widgets
 
       - name: Install and exercise plugin inside QGIS desktop
-        run: xvfb-run -a /usr/bin/python3 scripts/qgis_desktop_checks.py --qgis-bin /usr/bin/qgis --qt-platform xcb --plugin-root qa-installed/peruspatial_hub --install --output qa-output/desktop
+        run: xvfb-run -a /usr/bin/python3 scripts/qgis_desktop_checks.py --qgis-bin /usr/bin/qgis --qt-platform xcb --plugin-root qa-installed/peruspatial_hub --install --reload-cycles 8 --output qa-output/desktop
 
       - name: Validate inventoried CRS metadata with QGIS
         run: xvfb-run -a /usr/bin/python3 scripts/qgis_inventory_checks.py --catalog qa-installed/peruspatial_hub/catalog/catalog.json --output qa-output/inventory > qa-output/inventory-console.log 2>&1

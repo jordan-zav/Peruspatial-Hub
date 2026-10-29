@@ -336,7 +336,7 @@ class PeruSpatialHubPanel(QDockWidget):
         self.search_input.textChanged.connect(self.schedule_filter_services)
         self.category_combo.currentIndexChanged.connect(self.schedule_filter_services)
         self.tree_widget.itemSelectionChanged.connect(self.on_selection_changed)
-        self.tree_widget.itemDoubleClicked.connect(self.on_item_double_clicked)
+        self.tree_widget.itemActivated.connect(self.on_item_double_clicked)
         self.tree_widget.itemExpanded.connect(self.on_item_expanded)
 
         # Initial state
@@ -572,6 +572,10 @@ class PeruSpatialHubPanel(QDockWidget):
     def can_add_layer(self, data):
         return data.get("type") in self.LAYER_TYPES or self.is_map_service(data)
 
+    def selected_layer_count(self):
+        return len({self._favorite_key(data) for item in self.tree_widget.selectedItems()
+                    if self.can_add_layer(data := (item.data(0, Qt.ItemDataRole.UserRole) or {}))})
+
     @staticmethod
     def entry_source_type(data):
         if not data:
@@ -647,11 +651,8 @@ class PeruSpatialHubPanel(QDockWidget):
         elif ntype in self.LAYER_TYPES:
             selected = self.tree_widget.selectedItems()
             if len(selected) > 1:
-                layer_count = sum(
-                    1 for it in selected
-                    if self.can_add_layer(it.data(0, Qt.ItemDataRole.UserRole) or {})
-                )
-                menu.addAction(f"Añadir {layer_count} capas al Mapa", self.add_selected_layer).setEnabled(
+                layer_count = self.selected_layer_count()
+                menu.addAction(f"Añadir {layer_count} capas al Mapa" if layer_count > 1 else "Añadir al mapa", self.add_selected_layer).setEnabled(
                     layer_count > 0 and not self._loading_layers)
             else:
                 menu.addAction("Añadir al mapa", self.add_selected_layer).setEnabled(not self._loading_layers)
@@ -1316,7 +1317,10 @@ class PeruSpatialHubPanel(QDockWidget):
         selected_category = self.category_combo.currentText()
         self.tree_widget.setUpdatesEnabled(False)
         try:
-            self.populate_catalog_results(search_text, selected_category)
+            signature = (id(self.search_results_root), search_text, selected_category)
+            if getattr(self, "_catalog_search_signature", None) != signature:
+                self.populate_catalog_results(search_text, selected_category)
+                self._catalog_search_signature = signature
             self.filter_services()
         finally:
             self.tree_widget.setUpdatesEnabled(True)
@@ -1722,8 +1726,7 @@ class PeruSpatialHubPanel(QDockWidget):
     def update_buttons_state(self, s):
         """Enables/disables buttons and sets metadata description based on selection."""
         selected = self.tree_widget.selectedItems()
-        layer_count = sum(1 for item in selected
-                          if self.can_add_layer(item.data(0, Qt.ItemDataRole.UserRole) or {}))
+        layer_count = self.selected_layer_count()
         if s is None:
             self.metadata_panel.setHtml(
                 "<h3>Explore el catálogo</h3>"
@@ -1996,9 +1999,14 @@ class PeruSpatialHubPanel(QDockWidget):
         if not self._ui_available() or self._loading_layers:
             return
         layers = []
+        seen = set()
         for item in self.tree_widget.selectedItems():
             data = item.data(0, Qt.ItemDataRole.UserRole) or {}
             if self.can_add_layer(data):
+                key = self._favorite_key(data)
+                if key in seen:
+                    continue
+                seen.add(key)
                 layers.append(dict(data, prefer_raster=bool(as_raster)))
         if not layers:
             return

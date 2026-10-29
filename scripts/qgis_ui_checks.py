@@ -19,6 +19,9 @@ def main():
     parser.add_argument("--plugin-root", type=Path, default=ROOT)
     parser.add_argument("--case", action="append")
     parser.add_argument("--live", action="store_true", help="Also verify all configured sources through a real QGIS task")
+    parser.add_argument("--stress", action="store_true", help="Repeat ordinary user journeys with delayed and failed responses")
+    parser.add_argument("--stress-seed", type=int, default=20261028)
+    parser.add_argument("--stress-iterations", type=int, choices=range(1, 31), default=8, metavar="1..30")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
@@ -823,6 +826,10 @@ def main():
             return {"online": sum(row["online"] for row in reports), "total": len(reports),
                     "unavailable": [row for row in reports if not row["online"]]}
         run_case("live_all_sources_health_action", live_health)
+    if args.stress:
+        from qgis_user_stress_cases import run_user_stress
+        run_user_stress(run_case, app=app, ui=ui, fixtures=fixtures, layer=layer, select=select,
+                        wait_until=wait_until, seed=args.stress_seed, iterations=args.stress_iterations)
     sys.excepthook = old_hook
     failures = [result for result in results if not result["passed"]]
     print(json.dumps({"passed": len(results) - len(failures), "failed": len(failures)}, indent=2), flush=True)

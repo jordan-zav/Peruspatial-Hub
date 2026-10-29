@@ -90,7 +90,6 @@ class PeruSpatialHub(object):
                     Qt.DockWidgetArea.RightDockWidgetArea, self.dock_widget
                 )
 
-            self.dock_widget.tree_widget.collapseAll()
             self.dock_widget.show()
             self.dock_widget.raise_()
         except Exception:
