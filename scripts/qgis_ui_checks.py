@@ -601,6 +601,8 @@ def main():
         c.panel.filter_services()
         assert not root.isExpanded(), "Filtering must respect an explicitly collapsed result"
         c.panel.tree_widget.scrollToItem(root)
+        QTest.mouseClick(c.panel.tree_widget.viewport(), Qt.MouseButton.LeftButton,
+                        pos=c.panel.tree_widget.visualItemRect(root).center())
         QTest.mouseDClick(c.panel.tree_widget.viewport(), Qt.MouseButton.LeftButton,
                          pos=c.panel.tree_widget.visualItemRect(root).center())
         assert root.isExpanded(), "A double click must expand once rather than toggle twice"
