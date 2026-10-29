@@ -33,10 +33,9 @@ PeruSpatial Hub centraliza el acceso a infraestructuras de datos espaciales de
 instituciones públicas del Perú para geología, geografía, teledetección,
 ambiente, hidrocarburos, hidrogeología, arqueología y gestión territorial.
 
-La rama fuente declara la versión **1.4.0**; la insignia de Release muestra el
-último ZIP efectivamente publicado, que puede ir una versión detrás del código.
-
-Versión fuente en revisión: 1.4.0
+Versión **1.4.0**: catálogo auditado, columnas de tipo de dato y fuente,
+carga de mapas ráster y correcciones de navegación, favoritos y teclado.
+Consulte la [campaña de pruebas de uso y estrés](docs/USER_STRESS_AUDIT_20261028.md).
 
 ## Flujo general
 

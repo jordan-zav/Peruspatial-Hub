@@ -37,8 +37,9 @@ updating GitHub assets does not clear that portal status.
 5. Expand a service and double-click a layer, or use Add to map.
 6. Review institutional attribution and the layer's datum/CRS before analysis.
 
-The source declares 1.4.0. The release badge points to the actually published
-ZIP, which may lag behind the source version.
+Version **1.4.0** includes the audited catalogue, separate data type and source
+columns, rendered raster maps and fixes for browsing, favourites and keyboard
+activation. See the [user workflow and stress audit](docs/USER_STRESS_AUDIT_20261028.md).
 
 ## Fast local search
 
