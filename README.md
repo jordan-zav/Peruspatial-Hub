@@ -169,3 +169,5 @@ institution's authorship, attribution and access conditions.
 Jordan Zavaleta — [GisGeo Dev](https://gisgeo.dev) ·
 [jordanzav@gisgeo.dev](mailto:jordanzav@gisgeo.dev) ·
 [Source and issues](https://github.com/jordan-zav/Peruspatial-Hub).
+
+[Documentation and release packaging](docs/README.md)

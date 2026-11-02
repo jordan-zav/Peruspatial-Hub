@@ -28,3 +28,11 @@ generar_zip.bat
 CHANGELOG_INTERNAL.md
 *INTERNAL*.md
 
+# Generated artifacts and machine-local tooling
+.devresources*
+DEVRESOURCES_RUN.cmd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
