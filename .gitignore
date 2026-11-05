@@ -36,3 +36,5 @@ DEVRESOURCES_RUN.cmd
 .mypy_cache/
 .coverage
 htmlcov/
+
+AGENTS.md
